@@ -94,9 +94,10 @@ class Segment:
             if split_time < 0 or split_time > 1:
                 raise Exception("<!!> split_time in ratio mode should be between 0 and 1")
             
-            split_time = split_time * get_duration()
+            split_time = split_time * self.get_duration()
+            split_mode = SPLIT_MODE.RELATIVE
 
-        if split_mode in SPLIT_MODE.RELATIVE:
+        if split_mode == SPLIT_MODE.RELATIVE:
             if split_time < 0 or split_time > self.get_duration():
                 raise Exception("<!!> start_time is out of bounds")
 
@@ -108,9 +109,9 @@ class Segment:
             if split_time < self.start_time or split_time > self.end_time:
                 raise Exception("<!!> start_time is out of bounds")
 
-            new_segment.start_time = self.start_time + split_time
+            new_segment.start_time = split_time
             new_segment.end_time = self.end_time
-            self.end_time = new_segment.start_time
+            self.end_time = split_time
         
         else:
             raise Exception(f"<!!> Unknown split_mode ({split_mode})")
@@ -127,6 +128,11 @@ class SegmentListItem(QListWidgetItem):
         self.segment_obj = new_segment_obj
         self.on_update()
     
+    def split(self, *args, **kwargs):
+        new_segment = self.segment_obj.split(*args, **kwargs)
+        self.on_update()
+        return new_segment
+
     def on_update(self):
         self.setText(f"{format_time(self.segment_obj.start_time)} -> {format_time(self.segment_obj.end_time)}: {self.segment_obj.name}")
 
