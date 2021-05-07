@@ -154,6 +154,8 @@ class VODCutter(QMainWindow):
             oauth_token=self.twitch_oauth_token
         )
 
+        self.vlc_interface = VLCInterface("/Applications/VLC.app/Contents/MacOS/VLC")
+
         self.loaded_video = None
 
         self.main_layout = QVBoxLayout()
@@ -253,10 +255,15 @@ class VODCutter(QMainWindow):
 
         self.setCentralWidget(self.main_widget)
 
-
+        self.segments_add_btn.clicked.connect(self.create_segment)
+        self.split_btn.clicked.connect(self.split_selected_segment)
+        self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
         self.file_browser_btn.clicked.connect(self.on_filebrowse_btn_click)
         self.process_selected_btn.clicked.connect(self.process_selected_segment)
         self.process_all_btn.clicked.connect(self.process_all_segments)
+
+    def on_launch_vlc(self):
+        self.vlc_interface.launch()
 
     def on_filebrowse_btn_click(self):
         filename = QFileDialog.getOpenFileName(self, "Select a video file")
@@ -356,9 +363,24 @@ class VODCutter(QMainWindow):
 
             self.segments_list.addItem(SegmentListItem(s))
     
+    def create_segment(self):
+        s = Segment()
+
+        s.name = f"Segment {self.segments_list.count()}"
+        s.start_time = 0
+        s.end_time = self.vlc_interface.get_duration()
+
+        self.segments_list.addItem(SegmentListItem(s))
+
+    def split_selected_segment(self):
+        current_time = self.vlc_interface.get_current_time()
+
+        for segment_item in self.segments_list.selectedItems():
+            new_segment = segment_item.split(current_time, name="Splitted " + segment_item.segment_obj.name, split_mode=SPLIT_MODE.ABSOLUTE)
+            self.segments_list.addItem(SegmentListItem(new_segment))
+
     def process_selected_segment(self):
         for segment_item in self.segments_list.selectedItems():
-            print(segment_item)
             self.process_segment(segment_item.segment_obj)
 
     def process_all_segments(self):
