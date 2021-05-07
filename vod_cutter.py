@@ -1,3 +1,5 @@
+import os
+import sys
 import re
 import json
 import math
@@ -60,14 +62,27 @@ class Segment:
         new_segment = Segment()
         new_segment.name = name
 
-        if split_mode == SPLIT_MODE.RELATIVE:
-            pass
+        if split_mode == SPLIT_MODE.RATIO:
+            if split_time < 0 or split_time > 1:
+                raise Exception("<!!> split_time in ratio mode should be between 0 and 1")
+            
+            split_time = split_time * get_duration()
+
+        if split_mode in SPLIT_MODE.RELATIVE:
+            if split_time < 0 or split_time > self.get_duration():
+                raise Exception("<!!> start_time is out of bounds")
+
+            new_segment.start_time = self.start_time + split_time
+            new_segment.end_time = self.end_time
+            self.end_time = new_segment.start_time
 
         elif split_mode == SPLIT_MODE.ABSOLUTE:
-            pass
+            if split_time < self.start_time or split_time > self.end_time:
+                raise Exception("<!!> start_time is out of bounds")
 
-        elif split_mode == SPLIT_MODE.RATIO:
-            pass
+            new_segment.start_time = self.start_time + split_time
+            new_segment.end_time = self.end_time
+            self.end_time = new_segment.start_time
         
         else:
             raise Exception(f"<!!> Unknown split_mode ({split_mode})")
@@ -88,6 +103,11 @@ class SegmentListItem(QListWidgetItem):
         self.setText(f"{format_time(self.segment_obj.start_time)} -> {format_time(self.segment_obj.end_time)}: {self.segment_obj.name}")
 
 
+class InputVideo:
+    filepath = ""
+    metadatas = {}
+
+
 class VODCutter(QMainWindow):
     def __init__(self):
         QMainWindow.__init__(self)
@@ -99,6 +119,8 @@ class VODCutter(QMainWindow):
             client_id=self.twitch_client_id,
             oauth_token=self.twitch_oauth_token
         )
+
+        self.loaded_video = None
 
         self.main_layout = QVBoxLayout()
 
@@ -199,7 +221,7 @@ class VODCutter(QMainWindow):
 
 
         self.file_browser_btn.clicked.connect(self.on_filebrowse_btn_click)
-        self.process_selected_btn.clicked.connect(self.process_segment)
+        self.process_selected_btn.clicked.connect(self.process_selected_segment)
         self.process_all_btn.clicked.connect(self.process_all_segments)
 
     def on_filebrowse_btn_click(self):
@@ -209,7 +231,11 @@ class VODCutter(QMainWindow):
     
     def set_video_file(self, filepath=None):
         self.file_path_field.setText("" if filepath is None else filepath)
+
         if filepath:
+            self.loaded_video = InputVideo()
+            self.loaded_video.filepath = filepath
+
             self.update_twitch_metadatas()
     
     def get_twitch_id_from_filepath(self):
@@ -277,6 +303,8 @@ class VODCutter(QMainWindow):
         twitch_video_id = self.get_twitch_id_from_filepath()
         metadatas = self.get_twitch_metadatas(twitch_video_id)
 
+        self.loaded_video.metadatas = metadatas
+
         duration = parse_duration(metadatas["duration"])
 
         self.id_twitch_field.setText(metadatas["id"])
@@ -296,6 +324,7 @@ class VODCutter(QMainWindow):
     
     def process_selected_segment(self):
         for segment_item in self.segments_list.selectedItems():
+            print(segment_item)
             self.process_segment(segment_item.segment_obj)
 
     def process_all_segments(self):
@@ -304,7 +333,20 @@ class VODCutter(QMainWindow):
             self.process_segment(segment_item.segment_obj)
 
     def process_segment(self, segment_obj):
-        pass
+        if not self.loaded_video:
+            raise Exception("<!!> No video loaded")
+
+        video_id = self.loaded_video.metadatas.get("id", None)
+        created_at = self.loaded_video.metadatas.get("created_at", None)
+        user_login = self.loaded_video.metadatas.get("user_login", None)
+        
+        if not (video_id and created_at and user_login):
+            raise Exception("<!!> Missing video metadatas")
+        
+        created_at_timestamp = int(datetime.datetime.timestamp(created_at))
+        
+        cmd = f'ffmpeg -i "{self.loaded_video.filepath}" -ss {segment_obj.start_time} -to {segment_obj.end_time} -c:v copy -c:a copy "{user_login}_{created_at_timestamp}_{video_id}.mp4"'
+        os.system(cmd)
 
 
 qapp = QApplication()
