@@ -20,13 +20,7 @@ from twitch import TwitchHelix
 
 import config
 
-
-# "C:\Program Files\VideoLAN\VLC\vlc.exe" --extraintf=http --http-password test
-
-##r = requests.get("http://127.0.0.1:8080/requests/status.xml", auth=('', 'test'))
-##r.raw()
-
-# https://stackoverflow.com/questions/1912434/how-to-parse-xml-and-count-instances-of-a-particular-node-attribute
+import vod_thumbnails
 
 
 def format_time(seconds):
@@ -34,12 +28,13 @@ def format_time(seconds):
 
 
 def parse_duration(d):
-    duration_regex = re.search("([0-9]+)h([0-9]+)m([0-9]+)s", d, re.I)
+    print(d)
+    duration_regex = re.search("(?:([0-9]+)h)?(?:([0-9]+)m)?([0-9]+)s", d, re.I)
     if duration_regex:
         hours = duration_regex.group(1)
         mins = duration_regex.group(2)
         secs = duration_regex.group(3)
-        return datetime.timedelta(seconds=int(secs), minutes=int(mins), hours=int(hours))
+        return datetime.timedelta(seconds=(int(secs) if secs else 0), minutes=(int(mins) if mins else 0), hours=(int(hours) if hours else 0))
     else:
         return None
 
@@ -207,6 +202,7 @@ class VODCutter(QMainWindow):
         
 
         self.segments_create_btn = QPushButton("Import Chapters")
+        self.download_thumbnails_btn = QPushButton("Download Thumbnails")
 
         self.segments_list = QListWidget()
 
@@ -240,6 +236,7 @@ class VODCutter(QMainWindow):
         self.main_layout.addLayout(self.file_picker_layout)
         self.main_layout.addLayout(self.info_layout)
         self.main_layout.addWidget(self.segments_create_btn)
+        self.main_layout.addWidget(self.download_thumbnails_btn)
         self.main_layout.addWidget(self.segments_list)
         self.main_layout.addWidget(self.segments_add_btn)
         self.main_layout.addWidget(self.segments_delete_btn)
@@ -255,6 +252,7 @@ class VODCutter(QMainWindow):
 
         self.setCentralWidget(self.main_widget)
 
+        self.download_thumbnails_btn.clicked.connect(self.download_thumbnails)
         self.segments_add_btn.clicked.connect(self.create_segment)
         self.split_btn.clicked.connect(self.split_selected_segment)
         self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
@@ -403,6 +401,18 @@ class VODCutter(QMainWindow):
         
         cmd = f'ffmpeg -i "{self.loaded_video.filepath}" -ss {segment_obj.start_time} -to {segment_obj.end_time} -c:v copy -c:a copy "{user_login}_{created_at_timestamp}_{video_id}.mp4"'
         os.system(cmd)
+    
+    def download_thumbnails(self):
+        twitch_video_id_str = self.id_twitch_field.text()
+        if twitch_video_id_str:
+            thumbnails_manifest_url = vod_thumbnails.get_video_thumbnails_manifest_url(int(twitch_video_id_str))
+            thumbnails_manifest, images_url_list = vod_thumbnails.get_thumbnails_url(thumbnails_manifest_url)
+
+            for img in images_url_list:
+                r = requests.get(images_url_list[img])
+                fp = open(img, "wb")
+                fp.write(r.content)
+                fp.close()
 
 
 qapp = QApplication()
