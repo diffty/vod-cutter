@@ -149,7 +149,7 @@ class VODCutter(QMainWindow):
             oauth_token=self.twitch_oauth_token
         )
 
-        self.vlc_interface = VLCInterface("/Applications/VLC.app/Contents/MacOS/VLC")
+        self.vlc_interface = VLCInterface(config.VLC_PATH)
 
         self.loaded_video = None
 
