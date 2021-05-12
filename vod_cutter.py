@@ -23,6 +23,14 @@ import config
 import vod_thumbnails
 
 
+### Snippets ###
+# Download a segment of 1 minute starting @ 00:20:00
+# streamlink --hls-start-offset 00:20:00 --hls-duration 00:01:00 --player-passthrough hls https://www.twitch.tv/videos/1019098497 best -o test
+
+# Open a VLC with the seekable VOD or stream
+# streamlink --player-passthrough hls https://www.twitch.tv/videos/1019098497 best
+
+
 def format_time(seconds):
     return f"{str(math.floor(seconds / 3600)).zfill(2)}:{str(math.floor(seconds / 60 % 60)).zfill(2)}:{str(math.floor(seconds % 60)).zfill(2)}"
 
