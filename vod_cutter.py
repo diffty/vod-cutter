@@ -5,6 +5,7 @@ import json
 import math
 import datetime
 import subprocess
+import urllib.parse
 
 import xml.etree.ElementTree as ET
 
@@ -17,6 +18,7 @@ from PySide2.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout
 from PySide2.QtWidgets import QFileDialog
 
 from twitch import TwitchHelix
+import streamlink
 
 import config
 
@@ -42,7 +44,10 @@ def parse_duration(d):
         hours = duration_regex.group(1)
         mins = duration_regex.group(2)
         secs = duration_regex.group(3)
-        return datetime.timedelta(seconds=(int(secs) if secs else 0), minutes=(int(mins) if mins else 0), hours=(int(hours) if hours else 0))
+        return datetime.timedelta(
+            seconds=(int(secs) if secs else 0),
+            minutes=(int(mins) if mins else 0),
+            hours=(int(hours) if hours else 0))
     else:
         return None
 
@@ -61,8 +66,14 @@ class VLCInterface:
     def launch(self):
         self.process = subprocess.Popen([self.path, "--extraintf=http", "--http-password", "test"])
 
+    def open_url(self, url):
+        file_url = urllib.parse.quote(url)
+        r = requests.get(f"http://localhost:8080/requests/status.xml?command=in_play&input={file_url}", auth=('', 'test'))
+        print(r.text)
+        return ET.fromstring(r.text)
+
     def get_status(self):
-        r = requests.get("http://127.0.0.1:8080/requests/status.xml", auth=('', 'test'))
+        r = requests.get("http://localhost:8080/requests/status.xml", auth=('', 'test'))
         return ET.fromstring(r.text)
     
     def get_current_time(self):
@@ -70,12 +81,23 @@ class VLCInterface:
         position = float(xml_status.find("position").text)
         length = int(xml_status.find("length").text)
         return length * position
+    
+    def set_current_time(self, new_time):
+        r = requests.get(f"http://localhost:8080/requests/status.xml?command=seek&val={new_time}", auth=('', 'test'))
+        return ET.fromstring(r.text)
 
     def get_duration(self):
         xml_status = self.get_status()
         length = int(xml_status.find("length").text)
         return length
 
+
+class StreamlinkInterface:
+    def __init__(self, url):
+        self.url = url
+    
+    def launch(self):
+        pass
 
 
 class Segment:
@@ -125,24 +147,29 @@ class Segment:
 class SegmentListItem(QListWidgetItem):
     def __init__(self, new_segment_obj):
         QListWidgetItem.__init__(self)
+        self.segment_obj = None
         self.set_segment(new_segment_obj)
     
     def set_segment(self, new_segment_obj):
         self.segment_obj = new_segment_obj
-        self.on_update()
+        self.update()
+    
+    def get_segment(self):
+        return self.segment_obj
     
     def split(self, *args, **kwargs):
         new_segment = self.segment_obj.split(*args, **kwargs)
-        self.on_update()
+        self.update()
         return new_segment
 
-    def on_update(self):
+    def update(self):
         self.setText(f"{format_time(self.segment_obj.start_time)} -> {format_time(self.segment_obj.end_time)}: {self.segment_obj.name}")
 
 
 class InputVideo:
     filepath = ""
     metadatas = {}
+    is_local = False
 
 
 class VODCutter(QMainWindow):
@@ -211,6 +238,7 @@ class VODCutter(QMainWindow):
 
         self.segments_create_btn = QPushButton("Import Chapters")
         self.download_thumbnails_btn = QPushButton("Download Thumbnails")
+        self.download_chatlog_btn = QPushButton("Download Chat Log")
 
         self.segments_list = QListWidget()
 
@@ -245,6 +273,7 @@ class VODCutter(QMainWindow):
         self.main_layout.addLayout(self.info_layout)
         self.main_layout.addWidget(self.segments_create_btn)
         self.main_layout.addWidget(self.download_thumbnails_btn)
+        self.main_layout.addWidget(self.download_chatlog_btn)
         self.main_layout.addWidget(self.segments_list)
         self.main_layout.addWidget(self.segments_add_btn)
         self.main_layout.addWidget(self.segments_delete_btn)
@@ -260,10 +289,19 @@ class VODCutter(QMainWindow):
 
         self.setCentralWidget(self.main_widget)
 
+        self.segments_list.itemDoubleClicked.connect(self.on_segments_list_doubleclick)
+
+        self.jump_start_btn.clicked.connect(self.jump_to_segment_start)
+        self.jump_end_btn.clicked.connect(self.jump_to_segment_end)
+        self.set_start_btn.clicked.connect(self.set_segment_start)
+        self.set_end_btn.clicked.connect(self.set_segment_end)
+
         self.download_thumbnails_btn.clicked.connect(self.download_thumbnails)
         self.segments_add_btn.clicked.connect(self.create_segment)
+        self.segments_delete_btn.clicked.connect(self.delete_segment)
         self.split_btn.clicked.connect(self.split_selected_segment)
         self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
+        self.file_path_field.returnPressed.connect(self.on_video_url_changed)
         self.file_browser_btn.clicked.connect(self.on_filebrowse_btn_click)
         self.process_selected_btn.clicked.connect(self.process_selected_segment)
         self.process_all_btn.clicked.connect(self.process_all_segments)
@@ -275,15 +313,39 @@ class VODCutter(QMainWindow):
         filename = QFileDialog.getOpenFileName(self, "Select a video file")
         if filename[0]:
             self.set_video_file(filename[0])
+
+    def on_video_url_changed(self):
+        self.set_video_file(self.file_path_field.text())
+        
+    def on_segments_list_doubleclick(self, item):
+        current_segment = item.get_segment()
+        if current_segment:
+            self.vlc_interface.set_current_time(int(current_segment.start_time))
     
     def set_video_file(self, filepath=None):
         self.file_path_field.setText("" if filepath is None else filepath)
-
+        
         if filepath:
             self.loaded_video = InputVideo()
-            self.loaded_video.filepath = filepath
+
+            if re.search(r"^(?:/|[a-z]:[\\/])", filepath, re.I):
+                file_url = "file://" + filepath
+                self.loaded_video.is_local = True
+            else:
+                file_url = filepath
+
+
+            if not self.loaded_video.is_local:
+                streams = streamlink.streams(file_url)
+                if streams:
+                    self.loaded_video.filepath = streams["best"].url
+                else:
+                    self.loaded_video.filepath = file_url
+            else:
+                self.loaded_video.filepath = file_url
 
             self.update_twitch_metadatas()
+            self.vlc_interface.open_url(self.loaded_video.filepath)
     
     def get_twitch_id_from_filepath(self):
         filename = self.file_path_field.text()
@@ -294,7 +356,12 @@ class VODCutter(QMainWindow):
             video_id = parsed_filename.group(1)
             return int(video_id)
         else:
-            raise Exception(f"<!!> Can't find video Twitch id in video filename ({filename})")
+            parsed_url = re.search("videos/([0-9]+)", filename, re.I)
+            if parsed_url:
+                video_id = parsed_url.group(1)
+                return int(video_id)
+            else:
+                raise Exception(f"<!!> Can't find video Twitch id in video filename ({filename})")
     
     def get_twitch_metadatas(self, twitch_video_id):
         twitch_videos = self.twitch_client.get_videos(video_ids=[twitch_video_id])
@@ -377,22 +444,57 @@ class VODCutter(QMainWindow):
         s.end_time = self.vlc_interface.get_duration()
 
         self.segments_list.addItem(SegmentListItem(s))
+    
+    def delete_segment(self):
+        for item in self.segments_list.selectedItems():
+            idx = self.segments_list.indexFromItem(item)
+            item = self.segments_list.takeItem(idx.row())
+            del item
 
     def split_selected_segment(self):
         current_time = self.vlc_interface.get_current_time()
 
         for segment_item in self.segments_list.selectedItems():
-            new_segment = segment_item.split(current_time, name="Splitted " + segment_item.segment_obj.name, split_mode=SPLIT_MODE.ABSOLUTE)
-            self.segments_list.addItem(SegmentListItem(new_segment))
+            current_segment = segment_item.get_segment()
+            if current_segment:
+                new_segment = segment_item.split(current_time, name="Splitted " + current_segment.name, split_mode=SPLIT_MODE.ABSOLUTE)
+                self.segments_list.addItem(SegmentListItem(new_segment))
+    
+    def get_selected_segments(self):
+        return list(map(lambda item: item.get_segment(), self.segments_list.selectedItems()))
+
+    def jump_to_segment_start(self):
+        selected_segments = self.get_selected_segments()
+        if selected_segments:
+            self.vlc_interface.set_current_time(math.floor(selected_segments[0].start_time))
+
+    def jump_to_segment_end(self):
+        selected_segments = self.get_selected_segments()
+        if selected_segments:
+            self.vlc_interface.set_current_time(math.floor(selected_segments[0].end_time))
+
+    def set_segment_start(self):
+        current_time = self.vlc_interface.get_current_time()
+        selected_segments = self.segments_list.selectedItems()
+        if selected_segments:
+            selected_segments[0].get_segment().start_time = current_time
+            selected_segments[0].update()
+
+    def set_segment_end(self):
+        current_time = self.vlc_interface.get_current_time()
+        selected_segments = self.segments_list.selectedItems()
+        if selected_segments:
+            selected_segments[0].get_segment().end_time = current_time
+            selected_segments[0].update()
 
     def process_selected_segment(self):
-        for segment_item in self.segments_list.selectedItems():
-            self.process_segment(segment_item.segment_obj)
+        for segment in self.get_selected_segments():
+            self.process_segment(segment)
 
     def process_all_segments(self):
         for idx in range(self.segments_list.count()):
             segment_item = self.segments_list.item(idx)
-            self.process_segment(segment_item.segment_obj)
+            self.process_segment(segment_item.get_segment())
 
     def process_segment(self, segment_obj):
         if not self.loaded_video:
@@ -407,7 +509,13 @@ class VODCutter(QMainWindow):
         
         created_at_timestamp = int(datetime.datetime.timestamp(created_at))
         
-        cmd = f'ffmpeg -i "{self.loaded_video.filepath}" -ss {segment_obj.start_time} -to {segment_obj.end_time} -c:v copy -c:a copy "{user_login}_{created_at_timestamp}_{video_id}.mp4"'
+        if self.loaded_video.is_local:
+            cmd = f'ffmpeg -i "{self.loaded_video.filepath}" -ss {segment_obj.start_time} -to {segment_obj.end_time} -c:v copy -c:a copy "{user_login}_{created_at_timestamp}_{video_id}.mp4"'
+        else:
+            cmd = f'streamlink -f --hls-start-offset {format_time(segment_obj.start_time)} --hls-duration {format_time(segment_obj.end_time - segment_obj.start_time)} --player-passthrough hls "{self.loaded_video.filepath}" best -o "{user_login}_{created_at_timestamp}_{video_id}.mp4"'
+
+        print(cmd)
+        
         os.system(cmd)
     
     def download_thumbnails(self):
