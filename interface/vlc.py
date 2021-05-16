@@ -6,21 +6,23 @@ import requests
 
 
 class VLCInterface:
-    def __init__(self, path):
+    def __init__(self, path, port=8080, auth=("", "test")):
+        self.auth = auth
+        self.port = port
         self.path = path
         self.process = None
     
     def launch(self):
-        self.process = subprocess.Popen([self.path, "--extraintf=http", "--http-password", "test"])
+        self.process = subprocess.Popen([self.path, "--extraintf=http", "--http-port", str(self.port), "--http-password", self.auth[1]])
 
     def open_url(self, url):
         file_url = urllib.parse.quote(url)
-        r = requests.get(f"http://localhost:8080/requests/status.xml?command=in_play&input={file_url}", auth=('', 'test'))
+        r = requests.get(f"http://localhost:{self.port}/requests/status.xml?command=in_play&input={file_url}", auth=self.auth)
         print(r.text)
         return ET.fromstring(r.text)
 
     def get_status(self):
-        r = requests.get("http://localhost:8080/requests/status.xml", auth=('', 'test'))
+        r = requests.get(f"http://localhost:{self.port}/requests/status.xml", auth=self.auth)
         return ET.fromstring(r.text)
     
     def get_current_time(self):
@@ -30,7 +32,7 @@ class VLCInterface:
         return length * position
     
     def set_current_time(self, new_time):
-        r = requests.get(f"http://localhost:8080/requests/status.xml?command=seek&val={new_time}", auth=('', 'test'))
+        r = requests.get(f"http://localhost:{self.port}/requests/status.xml?command=seek&val={new_time}", auth=self.auth)
         return ET.fromstring(r.text)
 
     def get_duration(self):
