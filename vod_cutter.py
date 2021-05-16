@@ -6,23 +6,22 @@ import math
 import datetime
 import subprocess
 import urllib.parse
-
+import urllib3
 import xml.etree.ElementTree as ET
 
 import requests
+import streamlink
+
+import config
+from utils.time import format_time, parse_duration
+from interface.vlc import VLCInterface
+from interface.twitch import TwitchInterface
 
 from PySide2.QtWidgets import QApplication, QMainWindow
 from PySide2.QtWidgets import QWidget, QLabel, QLineEdit, QListWidget, QPushButton
 from PySide2.QtWidgets import QListWidgetItem
 from PySide2.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout
 from PySide2.QtWidgets import QFileDialog
-
-from twitch import TwitchHelix
-import streamlink
-
-import config
-
-import vod_thumbnails
 
 
 ### Snippets ###
@@ -32,72 +31,16 @@ import vod_thumbnails
 # Open a VLC with the seekable VOD or stream
 # streamlink --player-passthrough hls https://www.twitch.tv/videos/1019098497 best
 
+# Example of embedded VLC in PySide2 app
+# https://github.com/charlesbrandt/medley/blob/master/player/player.py
 
-def format_time(seconds):
-    return f"{str(math.floor(seconds / 3600)).zfill(2)}:{str(math.floor(seconds / 60 % 60)).zfill(2)}:{str(math.floor(seconds % 60)).zfill(2)}"
-
-
-def parse_duration(d):
-    print(d)
-    duration_regex = re.search("(?:([0-9]+)h)?(?:([0-9]+)m)?([0-9]+)s", d, re.I)
-    if duration_regex:
-        hours = duration_regex.group(1)
-        mins = duration_regex.group(2)
-        secs = duration_regex.group(3)
-        return datetime.timedelta(
-            seconds=(int(secs) if secs else 0),
-            minutes=(int(mins) if mins else 0),
-            hours=(int(hours) if hours else 0))
-    else:
-        return None
+# https://www.twitch.tv/videos/1019098497
 
 
 class SPLIT_MODE:
     RELATIVE = 0
     ABSOLUTE = 1
     RATIO = 2
-
-
-class VLCInterface:
-    def __init__(self, path):
-        self.path = path
-        self.process = None
-    
-    def launch(self):
-        self.process = subprocess.Popen([self.path, "--extraintf=http", "--http-password", "test"])
-
-    def open_url(self, url):
-        file_url = urllib.parse.quote(url)
-        r = requests.get(f"http://localhost:8080/requests/status.xml?command=in_play&input={file_url}", auth=('', 'test'))
-        print(r.text)
-        return ET.fromstring(r.text)
-
-    def get_status(self):
-        r = requests.get("http://localhost:8080/requests/status.xml", auth=('', 'test'))
-        return ET.fromstring(r.text)
-    
-    def get_current_time(self):
-        xml_status = self.get_status()
-        position = float(xml_status.find("position").text)
-        length = int(xml_status.find("length").text)
-        return length * position
-    
-    def set_current_time(self, new_time):
-        r = requests.get(f"http://localhost:8080/requests/status.xml?command=seek&val={new_time}", auth=('', 'test'))
-        return ET.fromstring(r.text)
-
-    def get_duration(self):
-        xml_status = self.get_status()
-        length = int(xml_status.find("length").text)
-        return length
-
-
-class StreamlinkInterface:
-    def __init__(self, url):
-        self.url = url
-    
-    def launch(self):
-        pass
 
 
 class Segment:
@@ -179,9 +122,11 @@ class VODCutter(QMainWindow):
         self.twitch_client_id = config.TWITCH_API_CLIENT_ID
         self.twitch_oauth_token = config.TWITCH_API_OAUTH_TOKEN
 
-        self.twitch_client = TwitchHelix(
-            client_id=self.twitch_client_id,
-            oauth_token=self.twitch_oauth_token
+        self.twitch_interface = TwitchInterface(
+            api_client_id=config.TWITCH_API_CLIENT_ID,
+            api_oauth_token=config.TWITCH_API_OAUTH_TOKEN,
+            browser_client_id=config.TWITCH_BROWSER_OAUTH_TOKEN,
+            browser_oauth_token=config.TWITCH_BROWSER_OAUTH_TOKEN
         )
 
         self.vlc_interface = VLCInterface(config.VLC_PATH)
@@ -334,7 +279,6 @@ class VODCutter(QMainWindow):
             else:
                 file_url = filepath
 
-
             if not self.loaded_video.is_local:
                 streams = streamlink.streams(file_url)
                 if streams:
@@ -343,9 +287,16 @@ class VODCutter(QMainWindow):
                     self.loaded_video.filepath = file_url
             else:
                 self.loaded_video.filepath = file_url
-
-            self.update_twitch_metadatas()
-            self.vlc_interface.open_url(self.loaded_video.filepath)
+            
+            try:
+                self.update_twitch_metadatas()
+            except requests.exceptions.ConnectionError:
+                print("<!!> Can't connect to Twitch API.")
+            
+            try:
+                self.vlc_interface.open_url(self.loaded_video.filepath)
+            except requests.exceptions.ConnectionError:
+                print("<!!> Can't connect to local VLC instance.")
     
     def get_twitch_id_from_filepath(self):
         filename = self.file_path_field.text()
@@ -363,50 +314,6 @@ class VODCutter(QMainWindow):
             else:
                 raise Exception(f"<!!> Can't find video Twitch id in video filename ({filename})")
     
-    def get_twitch_metadatas(self, twitch_video_id):
-        twitch_videos = self.twitch_client.get_videos(video_ids=[twitch_video_id])
-
-        if twitch_videos:
-            twitch_video_infos = twitch_videos[0]
-            return twitch_video_infos
-        else:
-            raise Exception(f"<!!> Can't find Twitch metadatasfor video file ({filename})")
-    
-    def get_video_games_list(self, twitch_video_id):
-        r = requests.post(
-            "https://gql.twitch.tv/gql",
-            headers={
-                'Client-Id': config.TWITCH_BROWSER_CLIENT_ID,
-                f'Authentification': 'OAuth ' + config.TWITCH_BROWSER_OAUTH_TOKEN,
-            },
-            data=json.dumps([{
-                "operationName": "VideoPlayer_ChapterSelectButtonVideo",
-                "variables": {
-                    "includePrivate": False,
-                    "videoID": str(twitch_video_id)
-                },
-                "extensions": {
-                    "persistedQuery": {
-                        "version": 1,
-                        "sha256Hash": "8d2793384aac3773beab5e59bd5d6f585aedb923d292800119e03d40cd0f9b41"
-                    }
-                }
-            }])
-        )
-
-        if r.status_code == 200:
-            answer_data = r.json()
-            moments_data = answer_data[0]["data"]["video"]["moments"]["edges"]
-
-            moments = []
-
-            for m in moments_data:
-                moments.append(m["node"])
-
-            return moments
-        else:
-            return None
-    
     def create_segment_before(self, segment_obj):
         pass
     
@@ -415,7 +322,7 @@ class VODCutter(QMainWindow):
     
     def update_twitch_metadatas(self):
         twitch_video_id = self.get_twitch_id_from_filepath()
-        metadatas = self.get_twitch_metadatas(twitch_video_id)
+        metadatas = self.twitch_interface.get_twitch_metadatas(twitch_video_id)
 
         self.loaded_video.metadatas = metadatas
 
@@ -427,7 +334,7 @@ class VODCutter(QMainWindow):
         self.title_field.setText(metadatas["title"])
         self.streamer_field.setText(metadatas["user_login"])
 
-        for moment in self.get_video_games_list(metadatas["id"]):
+        for moment in self.twitch_interface.get_video_games_list(metadatas["id"]):
             s = Segment()
 
             s.name = f"{moment['description']} ({moment['type']})"
@@ -521,8 +428,8 @@ class VODCutter(QMainWindow):
     def download_thumbnails(self):
         twitch_video_id_str = self.id_twitch_field.text()
         if twitch_video_id_str:
-            thumbnails_manifest_url = vod_thumbnails.get_video_thumbnails_manifest_url(int(twitch_video_id_str))
-            thumbnails_manifest, images_url_list = vod_thumbnails.get_thumbnails_url(thumbnails_manifest_url)
+            thumbnails_manifest_url = self.twitch_interface.get_video_thumbnails_manifest_url(int(twitch_video_id_str))
+            thumbnails_manifest, images_url_list = self.twitch_interface.get_thumbnails_url_from_manifest(thumbnails_manifest_url)
 
             for img in images_url_list:
                 r = requests.get(images_url_list[img])
