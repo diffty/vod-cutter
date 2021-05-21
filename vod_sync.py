@@ -25,6 +25,9 @@ from PySide2.QtWidgets import QFileDialog
 
 from PySide2.QtCore import Signal
 
+from streamlink.stream.http import HTTPStream
+from streamlink.stream.ffmpegmux import MuxedStream
+
 
 class InputVideo:
     filepath = ""
@@ -123,25 +126,42 @@ class VideoDeck(QWidget):
             else:
                 file_url = filepath
 
+            def find_suitable_stream(streams):
+                best_stream = streams.get("best", None)
+
+                if best_stream:
+                    if type(best_stream) is MuxedStream:
+                        return best_stream.substreams[0].url
+                    else:
+                        return best_stream.url
+                else:
+                    raise Exception(f"<!!> Can't find best stream")
+
             if not self.loaded_video.is_local:
                 streams = streamlink.streams(file_url)
                 if streams:
-                    self.loaded_video.filepath = streams["best"].url
+                    self.loaded_video.filepath = find_suitable_stream(streams) #streams["best"]
                 else:
                     self.loaded_video.filepath = file_url
             else:
                 self.loaded_video.filepath = file_url
             
-            try:
-                self.update_twitch_metadatas()
-            except requests.exceptions.ConnectionError:
-                print("<!!> Can't connect to Twitch API.")
+            if "twitch.tv" in file_url:
+                try:
+                    self.update_twitch_metadatas()
+                except requests.exceptions.ConnectionError:
+                    print("<!!> Can't connect to Twitch API.")
             
+            print(self.loaded_video.filepath)
+
             try:
                 self.vlc_instance.open_url(self.loaded_video.filepath)
             except requests.exceptions.ConnectionError:
                 print("<!!> Can't connect to local VLC instance.")
     
+    def get_service_metadatas(self):
+        pass
+
     def get_twitch_id_from_filepath(self):
         filename = self.file_picker_field.file_path_field.text()
 
@@ -193,6 +213,8 @@ class VODSync(QMainWindow):
         self.loaded_videos = []
         self.video_decks = []
 
+        self.corrected_time = None
+
         self.main_layout = QVBoxLayout()
 
         self.launch_vlc_btn = QPushButton("Launch VLC")
@@ -202,11 +224,43 @@ class VODSync(QMainWindow):
         self.decks_layout = QHBoxLayout()
 
         self.match_btn = QPushButton(text="MATCH")
+
         
         self.main_layout.addWidget(self.launch_vlc_btn)
         self.main_layout.addWidget(self.playlist_list)
         self.main_layout.addLayout(self.decks_layout)
         self.main_layout.addWidget(self.match_btn)
+
+
+        match_infos_layout = QGridLayout()
+
+        timecode_source_label = QLabel("Timecode Video Source")
+        timecode_target_label = QLabel("Timecode Video Target")
+        target_start_time_label = QLabel("Resulting VOD Start Time")
+        
+        self.timecode_source_field = QLineEdit()
+        self.timecode_target_field = QLineEdit()
+        self.target_start_time_field = QLineEdit()
+
+        self.timecode_source_field.setEnabled(False)
+        self.timecode_target_field.setEnabled(False)
+        self.target_start_time_field.setEnabled(False)
+
+        match_infos_layout.addWidget(timecode_source_label, 0, 0)
+        match_infos_layout.addWidget(timecode_target_label, 1, 0)
+        match_infos_layout.addWidget(target_start_time_label, 2, 0)
+
+        match_infos_layout.addWidget(self.timecode_source_field, 0, 1)
+        match_infos_layout.addWidget(self.timecode_target_field, 1, 1)
+        match_infos_layout.addWidget(self.target_start_time_field, 2, 1)
+
+
+        self.main_layout.addLayout(match_infos_layout)
+
+
+        self.export_btn = QPushButton(text="EXPORT")
+        self.main_layout.addWidget(self.export_btn)
+
 
         self.main_widget = QWidget()
         self.main_widget.setLayout(self.main_layout)
@@ -217,6 +271,7 @@ class VODSync(QMainWindow):
         self.playlist_list.itemDoubleClicked.connect(self.on_playlist_list_doubleclick)
 
         self.match_btn.clicked.connect(self.match)
+        self.export_btn.clicked.connect(self.export_metadatas)
         self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
 
 
@@ -237,10 +292,36 @@ class VODSync(QMainWindow):
         new_deck = VideoDeck(VLCInterface(config.VLC_PATH, port=vlc_port))
         self.video_decks.append(new_deck)
         self.decks_layout.addWidget(new_deck)
+    
+    def get_video_id(self):
+
+    
+    def export_metadatas(self, fixed_created_at):
+        fixed_metadatas = dict(self.video_decks[0].loaded_video.metadatas)
+        fixed_metadatas["created_at"] = self.corrected_time.isoformat()
+        fixed_metadatas["permanent_id"] = {
+            "service": "twitch",
+            "id": "1017753075"
+        },
+        print(fixed_metadatas)
 
     def match(self):
-        for deck in self.video_decks:
-            print(deck.vlc_instance.get_current_time())
+        if len(self.video_decks) < 2:
+            raise Exception(f"Not enough decks opened ({len(self.video_decks)})")
+
+        time_offset = abs(self.video_decks[0].vlc_instance.get_current_time() - self.video_decks[1].vlc_instance.get_current_time())
+
+        created_at = self.video_decks[0].loaded_video.metadatas.get("created_at")
+        
+        self.corrected_time = created_at + datetime.timedelta(seconds=time_offset)
+
+        self.timecode_source_field.setText(str(self.video_decks[0].vlc_instance.get_current_time()))
+        self.timecode_target_field.setText(str(self.video_decks[1].vlc_instance.get_current_time()))
+        self.target_start_time_field.setText(str(self.corrected_time))
+
+        print(created_at)
+        print(time_offset)
+        print(self.corrected_time)
 
     def on_launch_vlc(self):
         for deck in self.video_decks:
