@@ -16,6 +16,8 @@ import config
 from utils.time import format_time, parse_duration
 from interface.vlc import VLCInterface
 from interface.twitch import TwitchInterface
+from ui.filepicker_widget import FilePicker
+from playlist import Playlist
 
 from PySide2.QtWidgets import QApplication, QMainWindow
 from PySide2.QtWidgets import QWidget, QLabel, QLineEdit, QListWidget, QPushButton
@@ -34,166 +36,6 @@ class InputVideo:
     metadatas = {}
     is_local = False
 
-
-class FilePicker(QWidget):
-    changed = Signal()
-
-    def __init__(self) -> None:
-        QWidget.__init__(self)
-
-        self.file_picker_layout = QHBoxLayout()
-
-        self.file_path_field = QLineEdit()
-        self.file_browser_btn = QPushButton(text="...")
-
-        self.file_picker_layout.addWidget(self.file_path_field)
-        self.file_picker_layout.addWidget(self.file_browser_btn)
-
-        self.setLayout(self.file_picker_layout)
-
-        self.file_path_field.returnPressed.connect(self.on_video_url_changed)
-        self.file_browser_btn.clicked.connect(self.on_filebrowse_btn_click)
-
-    def on_filebrowse_btn_click(self):
-        filename = QFileDialog.getOpenFileName(self, "Select a video file")
-        if filename[0]:
-            self.file_path_field.setText(filename[0])
-            self.on_video_url_changed()
-    
-    def on_video_url_changed(self, *args):
-        self.changed.emit()
-
-
-class VideoDeck(QWidget):
-    def __init__(self, vlc_instance=None):
-        QWidget.__init__(self)
-        self.layout = QHBoxLayout()
-
-        self.loaded_video = None
-        self.vlc_instance = vlc_instance
-
-        self.file_picker_field = FilePicker()
-
-        self.info_layout = QGridLayout()
-
-        vod_filepath_label = QLabel("VOD Filepath")
-        id_twitch_label = QLabel("ID Twitch")
-        created_at_label = QLabel("Created at")
-        duration_label = QLabel("Duration")
-        title_label = QLabel("Title")
-        streamer_label = QLabel("Streamer")
-        
-        self.id_twitch_field = QLineEdit()
-        self.created_at_field = QLineEdit()
-        self.duration_field = QLineEdit()
-        self.title_field = QLineEdit()
-        self.streamer_field = QLineEdit()
-
-        self.id_twitch_field.setEnabled(False)
-        self.created_at_field.setEnabled(False)
-        self.duration_field.setEnabled(False)
-        self.title_field.setEnabled(False)
-        self.streamer_field.setEnabled(False)
-
-        self.info_layout.addWidget(vod_filepath_label, 0, 0)
-        self.info_layout.addWidget(id_twitch_label, 1, 0)
-        self.info_layout.addWidget(created_at_label, 2, 0)
-        self.info_layout.addWidget(duration_label, 3, 0)
-        self.info_layout.addWidget(title_label, 4, 0)
-        self.info_layout.addWidget(streamer_label, 5, 0)
-
-        self.info_layout.addWidget(self.file_picker_field, 0, 1)
-        self.info_layout.addWidget(self.id_twitch_field, 1, 1)
-        self.info_layout.addWidget(self.created_at_field, 2, 1)
-        self.info_layout.addWidget(self.duration_field, 3, 1)
-        self.info_layout.addWidget(self.title_field, 4, 1)
-        self.info_layout.addWidget(self.streamer_field, 5, 1)
-
-        self.layout.addLayout(self.info_layout)
-        self.file_picker_field.changed.connect(self.on_video_url_changed)
-
-        self.setLayout(self.layout)
-    
-    def set_video_file(self, filepath=None):
-        self.file_picker_field.file_path_field.setText("" if filepath is None else filepath)
-        
-        if filepath:
-            self.loaded_video = InputVideo()
-
-            if re.search(r"^(?:/|[a-z]:[\\/])", filepath, re.I):
-                file_url = "file://" + filepath
-                self.loaded_video.is_local = True
-            else:
-                file_url = filepath
-
-            def find_suitable_stream(streams):
-                best_stream = streams.get("best", None)
-
-                if best_stream:
-                    if type(best_stream) is MuxedStream:
-                        return best_stream.substreams[0].url
-                    else:
-                        return best_stream.url
-                else:
-                    raise Exception(f"<!!> Can't find best stream")
-
-            if not self.loaded_video.is_local:
-                streams = streamlink.streams(file_url)
-                if streams:
-                    self.loaded_video.filepath = find_suitable_stream(streams) #streams["best"]
-                else:
-                    self.loaded_video.filepath = file_url
-            else:
-                self.loaded_video.filepath = file_url
-            
-            if "twitch.tv" in file_url:
-                try:
-                    self.update_twitch_metadatas()
-                except requests.exceptions.ConnectionError:
-                    print("<!!> Can't connect to Twitch API.")
-            
-            print(self.loaded_video.filepath)
-
-            try:
-                self.vlc_instance.open_url(self.loaded_video.filepath)
-            except requests.exceptions.ConnectionError:
-                print("<!!> Can't connect to local VLC instance.")
-    
-    def get_service_metadatas(self):
-        pass
-
-    def get_twitch_id_from_filepath(self):
-        filename = self.file_picker_field.file_path_field.text()
-
-        parsed_filename = re.search("([0-9]+)\.mp4$", filename, re.I)
-
-        if parsed_filename:
-            video_id = parsed_filename.group(1)
-            return int(video_id)
-        else:
-            parsed_url = re.search("videos/([0-9]+)", filename, re.I)
-            if parsed_url:
-                video_id = parsed_url.group(1)
-                return int(video_id)
-            else:
-                raise Exception(f"<!!> Can't find video Twitch id in video filename ({filename})")
-    
-    def update_twitch_metadatas(self):
-        twitch_video_id = self.get_twitch_id_from_filepath()
-        metadatas = self.topLevelWidget().twitch_interface.get_twitch_metadatas(twitch_video_id)
-
-        self.loaded_video.metadatas = metadatas
-
-        duration = parse_duration(metadatas["duration"])
-
-        self.id_twitch_field.setText(metadatas["id"])
-        self.created_at_field.setText(str(metadatas["created_at"]))
-        self.duration_field.setText(format_time(duration.seconds))
-        self.title_field.setText(metadatas["title"])
-        self.streamer_field.setText(metadatas["user_login"])
-    
-    def on_video_url_changed(self):
-        self.set_video_file(self.file_picker_field.file_path_field.text())
 
 
 class VODSync(QMainWindow):
@@ -293,9 +135,20 @@ class VODSync(QMainWindow):
         self.video_decks.append(new_deck)
         self.decks_layout.addWidget(new_deck)
     
-    def get_video_id(self):
-
+    def load_playlist(self, playlist_filepath):
+        p = Playlist.load_from_file(playlist_filepath)
+        playlist_item_widget_list = [PlaylistItemWidget(playlist_item) for playlist_item in p.playlist_content]
+        for playlist_item in playlist_item_widget_list:
+            self.playlist_list.addItem(playlist_item)
     
+    def load_playlist_item(self, playlist_item_widget):
+        for i, media_url in enumerate(playlist_item_widget.playlist_item.media_list):
+            if i >= len(self.video_decks):
+                print("<!> Not enough decks to load all the playlist item videos!")
+                break
+            
+            self.video_decks[i].set_video_file(media_url)
+
     def export_metadatas(self, fixed_created_at):
         fixed_metadatas = dict(self.video_decks[0].loaded_video.metadatas)
         fixed_metadatas["created_at"] = self.corrected_time.isoformat()
@@ -327,15 +180,165 @@ class VODSync(QMainWindow):
         for deck in self.video_decks:
             deck.vlc_instance.launch()
 
-    def on_playlist_list_doubleclick(self, item):
-        current_segment = item.get_segment()
-        if current_segment:
-            self.get_vlc_instance(0).set_current_time(int(current_segment.start_time))
+    def on_playlist_list_doubleclick(self, playlist_item):
+        self.load_playlist_item(playlist_item)
+
+
+class VideoDeck(QWidget):
+    def __init__(self, vlc_instance=None):
+        QWidget.__init__(self)
+        self.layout = QHBoxLayout()
+
+        self.loaded_video = None
+        self.vlc_instance = vlc_instance
+
+        self.file_picker_field = FilePicker()
+
+        self.info_layout = QGridLayout()
+
+        vod_filepath_label = QLabel("VOD Filepath")
+        id_twitch_label = QLabel("ID Twitch")
+        created_at_label = QLabel("Created at")
+        duration_label = QLabel("Duration")
+        title_label = QLabel("Title")
+        streamer_label = QLabel("Streamer")
+        
+        self.id_twitch_field = QLineEdit()
+        self.created_at_field = QLineEdit()
+        self.duration_field = QLineEdit()
+        self.title_field = QLineEdit()
+        self.streamer_field = QLineEdit()
+
+        self.id_twitch_field.setEnabled(False)
+        self.created_at_field.setEnabled(False)
+        self.duration_field.setEnabled(False)
+        self.title_field.setEnabled(False)
+        self.streamer_field.setEnabled(False)
+
+        self.info_layout.addWidget(vod_filepath_label, 0, 0)
+        self.info_layout.addWidget(id_twitch_label, 1, 0)
+        self.info_layout.addWidget(created_at_label, 2, 0)
+        self.info_layout.addWidget(duration_label, 3, 0)
+        self.info_layout.addWidget(title_label, 4, 0)
+        self.info_layout.addWidget(streamer_label, 5, 0)
+
+        self.info_layout.addWidget(self.file_picker_field, 0, 1)
+        self.info_layout.addWidget(self.id_twitch_field, 1, 1)
+        self.info_layout.addWidget(self.created_at_field, 2, 1)
+        self.info_layout.addWidget(self.duration_field, 3, 1)
+        self.info_layout.addWidget(self.title_field, 4, 1)
+        self.info_layout.addWidget(self.streamer_field, 5, 1)
+
+        self.layout.addLayout(self.info_layout)
+        self.file_picker_field.changed.connect(self.on_video_url_changed)
+
+        self.setLayout(self.layout)
     
+    def set_video_file(self, filepath=None):
+        self.file_picker_field.file_path_field.setText("" if filepath is None else filepath)
+        
+        if filepath:
+            self.loaded_video = InputVideo()
 
-qapp = QApplication()
+            if re.search(r"^(?:/|[a-z]:[\\/])", filepath, re.I):
+                file_url = "file://" + filepath
+                self.loaded_video.is_local = True
+            else:
+                file_url = filepath
 
-w = VODSync()
-w.show()
+            def find_suitable_stream(streams):
+                best_stream = streams.get("best", None)
 
-qapp.exec_()
+                if best_stream:
+                    if type(best_stream) is MuxedStream:
+                        return best_stream.substreams[0].url
+                    else:
+                        return best_stream.url
+                else:
+                    raise Exception(f"<!!> Can't find best stream")
+
+            if not self.loaded_video.is_local:
+                try:
+                    streams = streamlink.streams(file_url)
+                except streamlink.exceptions.PluginError as e:
+                    print(f"<!!> Error while loading video {file_url} : {e}")
+                    return
+
+                if streams:
+                    self.loaded_video.filepath = find_suitable_stream(streams) #streams["best"]
+                else:
+                    self.loaded_video.filepath = file_url
+            else:
+                self.loaded_video.filepath = file_url
+            
+            if "twitch.tv" in file_url:
+                try:
+                    self.update_twitch_metadatas()
+                except requests.exceptions.ConnectionError:
+                    print("<!!> Can't connect to Twitch API.")
+            
+            print(self.loaded_video.filepath)
+
+            try:
+                self.vlc_instance.open_url(self.loaded_video.filepath)
+            except requests.exceptions.ConnectionError:
+                print("<!!> Can't connect to local VLC instance.")
+    
+    def get_service_metadatas(self):
+        pass
+
+    def get_twitch_id_from_filepath(self):
+        filename = self.file_picker_field.file_path_field.text()
+
+        parsed_filename = re.search("([0-9]+)\.mp4$", filename, re.I)
+
+        if parsed_filename:
+            video_id = parsed_filename.group(1)
+            return int(video_id)
+        else:
+            parsed_url = re.search("videos/([0-9]+)", filename, re.I)
+            if parsed_url:
+                video_id = parsed_url.group(1)
+                return int(video_id)
+            else:
+                raise Exception(f"<!!> Can't find video Twitch id in video filename ({filename})")
+    
+    def update_twitch_metadatas(self):
+        twitch_video_id = self.get_twitch_id_from_filepath()
+        metadatas = self.topLevelWidget().twitch_interface.get_twitch_metadatas(twitch_video_id)
+
+        self.loaded_video.metadatas = metadatas
+
+        duration = parse_duration(metadatas["duration"])
+
+        self.id_twitch_field.setText(metadatas["id"])
+        self.created_at_field.setText(str(metadatas["created_at"]))
+        self.duration_field.setText(format_time(duration.seconds))
+        self.title_field.setText(metadatas["title"])
+        self.streamer_field.setText(metadatas["user_login"])
+    
+    def on_video_url_changed(self):
+        self.set_video_file(self.file_picker_field.file_path_field.text())
+
+
+class PlaylistItemWidget(QListWidgetItem):
+    def __init__(self, playlist_item) -> None:
+        super().__init__()
+        self.playlist_item = None
+        self.set_playlist_item(playlist_item)
+    
+    def set_playlist_item(self, new_playlist_item):
+        self.playlist_item = new_playlist_item
+        self.setText(", ".join(self.playlist_item.media_list))
+        print(", ".join(self.playlist_item.media_list))
+
+
+if __name__ == "__main__":
+    qapp = QApplication()
+
+    w = VODSync()
+    w.show()
+
+    w.load_playlist("playlist_test.json")
+
+    qapp.exec_()
