@@ -61,6 +61,8 @@ class VODSync(QMainWindow):
 
         self.launch_vlc_btn = QPushButton("Launch VLC")
 
+        self.open_playlist_btn = QPushButton("Open Playlist")
+        
         self.playlist_list = QListWidget()
 
         self.decks_layout = QHBoxLayout()
@@ -69,6 +71,7 @@ class VODSync(QMainWindow):
 
         
         self.main_layout.addWidget(self.launch_vlc_btn)
+        self.main_layout.addWidget(self.open_playlist_btn)
         self.main_layout.addWidget(self.playlist_list)
         self.main_layout.addLayout(self.decks_layout)
         self.main_layout.addWidget(self.match_btn)
@@ -115,7 +118,7 @@ class VODSync(QMainWindow):
         self.match_btn.clicked.connect(self.match)
         self.export_btn.clicked.connect(self.export_metadatas)
         self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
-
+        self.open_playlist_btn.clicked.connect(self.open_playlist)
 
         self.add_video_deck(8080)
         self.add_video_deck(8081)
@@ -134,6 +137,11 @@ class VODSync(QMainWindow):
         new_deck = VideoDeck(VLCInterface(config.VLC_PATH, port=vlc_port))
         self.video_decks.append(new_deck)
         self.decks_layout.addWidget(new_deck)
+    
+    def open_playlist(self):
+        filename = QFileDialog.getOpenFileName(self, "Select a playlist")
+        if filename[0]:
+            self.load_playlist(filename[0])
     
     def load_playlist(self, playlist_filepath):
         p = Playlist.load_from_file(playlist_filepath)
@@ -339,6 +347,6 @@ if __name__ == "__main__":
     w = VODSync()
     w.show()
 
-    w.load_playlist("playlist_test.json")
+    #w.load_playlist("playlist_test.json")
 
     qapp.exec_()
