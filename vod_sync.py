@@ -31,11 +31,21 @@ from streamlink.stream.http import HTTPStream
 from streamlink.stream.ffmpegmux import MuxedStream
 
 
+# SNIPPETS
+# Drag & drop
+# https://stackoverflow.com/questions/25603134/pyside-drag-and-drop-files-into-qlistwidget
+
+# TODO:
+# [--] Bouton radio pour définir la vidéo de référence
+# [--] Définir automatiquement la vidéo de ref en fonction du type (prendre la première vidéo twitch type "archive" ou le cas échéant la première vidéo)
+# [--] Drag & Drop
+# [--] Titre de la vidéo dans playlist
+
+
 class InputVideo:
-    filepath = ""
+    video_url = ""
     metadatas = {}
     is_local = False
-
 
 
 class VODSync(QMainWindow):
@@ -155,15 +165,21 @@ class VODSync(QMainWindow):
                 print("<!> Not enough decks to load all the playlist item videos!")
                 break
             
-            self.video_decks[i].set_video_file(media_url)
+            self.video_decks[i].load_video_url(media_url)
 
     def export_metadatas(self, fixed_created_at):
+        time_offset = abs(self.video_decks[0].vlc_instance.get_current_time() - self.video_decks[1].vlc_instance.get_current_time())
+
+        created_at = self.video_decks[0].loaded_video.metadatas.get("created_at")
+        
+        corrected_time = created_at + datetime.timedelta(seconds=time_offset)
+
         fixed_metadatas = dict(self.video_decks[0].loaded_video.metadatas)
-        fixed_metadatas["created_at"] = self.corrected_time.isoformat()
+        fixed_metadatas["created_at"] = corrected_time.isoformat()
         fixed_metadatas["permanent_id"] = {
-            "service": "twitch",
-            "id": "1017753075"
-        },
+            "service": self.video_decks[1].loaded_video.metadatas["service"],
+            "id": self.video_decks[1].loaded_video.metadatas["id"]
+        }
         print(fixed_metadatas)
 
     def match(self):
@@ -242,17 +258,17 @@ class VideoDeck(QWidget):
 
         self.setLayout(self.layout)
     
-    def set_video_file(self, filepath=None):
-        self.file_picker_field.file_path_field.setText("" if filepath is None else filepath)
+    def load_video_url(self, url=None):
+        self.file_picker_field.file_path_field.setText("" if url is None else url)
         
-        if filepath:
+        if url:
             self.loaded_video = InputVideo()
 
-            if re.search(r"^(?:/|[a-z]:[\\/])", filepath, re.I):
-                file_url = "file://" + filepath
+            if re.search(r"^(?:/|[a-z]:[\\/])", url, re.I):
+                video_url = "file://" + url
                 self.loaded_video.is_local = True
             else:
-                file_url = filepath
+                video_url = url
 
             def find_suitable_stream(streams):
                 best_stream = streams.get("best", None)
@@ -267,35 +283,52 @@ class VideoDeck(QWidget):
 
             if not self.loaded_video.is_local:
                 try:
-                    streams = streamlink.streams(file_url)
+                    streams = streamlink.streams(video_url)
                 except streamlink.exceptions.PluginError as e:
-                    print(f"<!!> Error while loading video {file_url} : {e}")
+                    print(f"<!!> Error while loading video {video_url} : {e}")
                     return
 
                 if streams:
-                    self.loaded_video.filepath = find_suitable_stream(streams) #streams["best"]
+                    self.loaded_video.video_url = find_suitable_stream(streams) #streams["best"]
                 else:
-                    self.loaded_video.filepath = file_url
+                    self.loaded_video.video_url = video_url
             else:
-                self.loaded_video.filepath = file_url
+                self.loaded_video.video_url = video_url
             
-            if "twitch.tv" in file_url:
+            if "twitch.tv" in video_url:
                 try:
+                    self.loaded_video.metadatas["service"] = "twitch"
                     self.update_twitch_metadatas()
                 except requests.exceptions.ConnectionError:
                     print("<!!> Can't connect to Twitch API.")
+            elif "youtube.com" in video_url:
+                try:
+                    self.loaded_video.metadatas["service"] = "youtube"
+                    self.update_youtube_metadatas()
+                except requests.exceptions.ConnectionError:
+                    print("<!!> Can't connect to Youtube API.")
             
-            print(self.loaded_video.filepath)
-
             try:
-                self.vlc_instance.open_url(self.loaded_video.filepath)
+                self.vlc_instance.open_url(self.loaded_video.video_url)
             except requests.exceptions.ConnectionError:
                 print("<!!> Can't connect to local VLC instance.")
     
     def get_service_metadatas(self):
         pass
 
-    def get_twitch_id_from_filepath(self):
+    def get_youtube_id_from_url(self):
+        url = self.file_picker_field.file_path_field.text()
+
+        # Ressource pour plus tard : https://webapps.stackexchange.com/questions/54443/format-for-id-of-youtube-video
+        parsed_url = re.search("v=([0-9A-Za-z_-]+)", url, re.I)
+
+        if parsed_url:
+            video_id = parsed_url.group(1)
+            return video_id
+        else:
+            raise Exception(f"<!!> Can't find video Youtube id in video url ({url})")
+
+    def get_twitch_id_from_url(self):
         filename = self.file_picker_field.file_path_field.text()
 
         parsed_filename = re.search("([0-9]+)\.mp4$", filename, re.I)
@@ -311,8 +344,13 @@ class VideoDeck(QWidget):
             else:
                 raise Exception(f"<!!> Can't find video Twitch id in video filename ({filename})")
     
+    def update_youtube_metadatas(self):
+        self.loaded_video.metadatas["id"] = self.get_youtube_id_from_url()
+
+        self.id_twitch_field.setText(self.loaded_video.metadatas["id"])
+
     def update_twitch_metadatas(self):
-        twitch_video_id = self.get_twitch_id_from_filepath()
+        twitch_video_id = self.get_twitch_id_from_url()
         metadatas = self.topLevelWidget().twitch_interface.get_twitch_metadatas(twitch_video_id)
 
         self.loaded_video.metadatas = metadatas
@@ -326,7 +364,7 @@ class VideoDeck(QWidget):
         self.streamer_field.setText(metadatas["user_login"])
     
     def on_video_url_changed(self):
-        self.set_video_file(self.file_picker_field.file_path_field.text())
+        self.load_video_url(self.file_picker_field.file_path_field.text())
 
 
 class PlaylistItemWidget(QListWidgetItem):
