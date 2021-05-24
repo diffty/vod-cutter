@@ -19,13 +19,15 @@ from interface.twitch import TwitchInterface
 from ui.filepicker_widget import FilePicker
 from playlist import Playlist
 
+import PySide2
+
 from PySide2.QtWidgets import QApplication, QMainWindow
 from PySide2.QtWidgets import QWidget, QLabel, QLineEdit, QListWidget, QPushButton
 from PySide2.QtWidgets import QListWidgetItem
 from PySide2.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout
 from PySide2.QtWidgets import QFileDialog
 
-from PySide2.QtCore import Signal
+from PySide2.QtCore import Signal, Qt
 
 from streamlink.stream.http import HTTPStream
 from streamlink.stream.ffmpegmux import MuxedStream
@@ -38,7 +40,7 @@ from streamlink.stream.ffmpegmux import MuxedStream
 # TODO:
 # [--] Bouton radio pour définir la vidéo de référence
 # [--] Définir automatiquement la vidéo de ref en fonction du type (prendre la première vidéo twitch type "archive" ou le cas échéant la première vidéo)
-# [--] Drag & Drop
+# [OK] Drag & Drop
 # [--] Titre de la vidéo dans playlist
 
 
@@ -71,9 +73,7 @@ class VODSync(QMainWindow):
 
         self.launch_vlc_btn = QPushButton("Launch VLC")
 
-        self.open_playlist_btn = QPushButton("Open Playlist")
-        
-        self.playlist_list = QListWidget()
+        self.playlist_widget = PlaylistWidget()
 
         self.decks_layout = QHBoxLayout()
 
@@ -81,8 +81,7 @@ class VODSync(QMainWindow):
 
         
         self.main_layout.addWidget(self.launch_vlc_btn)
-        self.main_layout.addWidget(self.open_playlist_btn)
-        self.main_layout.addWidget(self.playlist_list)
+        self.main_layout.addWidget(self.playlist_widget)
         self.main_layout.addLayout(self.decks_layout)
         self.main_layout.addWidget(self.match_btn)
 
@@ -123,12 +122,10 @@ class VODSync(QMainWindow):
 
         self.setCentralWidget(self.main_widget)
 
-        self.playlist_list.itemDoubleClicked.connect(self.on_playlist_list_doubleclick)
-
         self.match_btn.clicked.connect(self.match)
         self.export_btn.clicked.connect(self.export_metadatas)
         self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
-        self.open_playlist_btn.clicked.connect(self.open_playlist)
+        self.playlist_widget.itemPlayed.connect(self.on_playlist_item_played)
 
         self.add_video_deck(8080)
         self.add_video_deck(8081)
@@ -148,25 +145,6 @@ class VODSync(QMainWindow):
         self.video_decks.append(new_deck)
         self.decks_layout.addWidget(new_deck)
     
-    def open_playlist(self):
-        filename = QFileDialog.getOpenFileName(self, "Select a playlist")
-        if filename[0]:
-            self.load_playlist(filename[0])
-    
-    def load_playlist(self, playlist_filepath):
-        p = Playlist.load_from_file(playlist_filepath)
-        playlist_item_widget_list = [PlaylistItemWidget(playlist_item) for playlist_item in p.playlist_content]
-        for playlist_item in playlist_item_widget_list:
-            self.playlist_list.addItem(playlist_item)
-    
-    def load_playlist_item(self, playlist_item_widget):
-        for i, media_url in enumerate(playlist_item_widget.playlist_item.media_list):
-            if i >= len(self.video_decks):
-                print("<!> Not enough decks to load all the playlist item videos!")
-                break
-            
-            self.video_decks[i].load_video_url(media_url)
-
     def export_metadatas(self, fixed_created_at):
         time_offset = abs(self.video_decks[0].vlc_instance.get_current_time() - self.video_decks[1].vlc_instance.get_current_time())
 
@@ -203,15 +181,22 @@ class VODSync(QMainWindow):
     def on_launch_vlc(self):
         for deck in self.video_decks:
             deck.vlc_instance.launch()
-
-    def on_playlist_list_doubleclick(self, playlist_item):
-        self.load_playlist_item(playlist_item)
+    
+    def on_playlist_item_played(self, media_list):
+        for i, media_url in enumerate(media_list):
+            if i >= len(self.video_decks):
+                print("<!> Not enough decks to load all the playlist item videos!")
+                break
+            
+            self.video_decks[i].load_video_url(media_url)
 
 
 class VideoDeck(QWidget):
     def __init__(self, vlc_instance=None):
         QWidget.__init__(self)
         self.layout = QHBoxLayout()
+
+        self.setAcceptDrops(True)
 
         self.loaded_video = None
         self.vlc_instance = vlc_instance
@@ -266,6 +251,9 @@ class VideoDeck(QWidget):
 
             if re.search(r"^(?:/|[a-z]:[\\/])", url, re.I):
                 video_url = "file://" + url
+                self.loaded_video.is_local = True
+            elif url.lower().startswith("file://"):
+                video_url = url
                 self.loaded_video.is_local = True
             else:
                 video_url = url
@@ -365,6 +353,100 @@ class VideoDeck(QWidget):
     
     def on_video_url_changed(self):
         self.load_video_url(self.file_picker_field.file_path_field.text())
+    
+    def dragEnterEvent(self, event: PySide2.QtGui.QDragEnterEvent) -> None:
+        if event.mimeData().hasUrls:
+            event.accept()
+        else:
+            event.ignore()
+    
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls:
+            event.setDropAction(Qt.CopyAction)
+            event.accept()
+        else:
+            event.ignore()
+        
+    def dropEvent(self, event: PySide2.QtGui.QDropEvent) -> None:
+        if event.mimeData().hasUrls:
+            event.setDropAction(Qt.CopyAction)
+            event.accept()
+            
+            if len(event.mimeData().urls()) > 0:
+                url = event.mimeData().urls()[0]
+                self.load_video_url(url.url())
+        else:
+            event.ignore()
+
+
+
+class PlaylistWidget(QWidget):
+    itemPlayed = Signal(list)
+
+    def __init__(self):
+        super().__init__()
+
+        self.layout = QVBoxLayout()
+
+        self.open_playlist_btn = QPushButton("Open Playlist")
+        self.playlist_list = QListWidget()
+
+        self.setAcceptDrops(True)
+
+        self.layout.addWidget(self.open_playlist_btn)
+        self.layout.addWidget(self.playlist_list)
+
+        self.open_playlist_btn.clicked.connect(self.open_playlist)
+        self.playlist_list.itemDoubleClicked.connect(self.on_playlist_list_doubleclick)
+
+        self.setLayout(self.layout)
+    
+    def open_playlist(self):
+        filename = QFileDialog.getOpenFileName(self, "Select a playlist")
+        if filename[0]:
+            self.load_playlist(filename[0])
+    
+    def load_playlist(self, playlist_filepath):
+        self.clear_playlist()
+
+        p = Playlist.load_from_file(playlist_filepath)
+        playlist_item_widget_list = [PlaylistItemWidget(playlist_item) for playlist_item in p.playlist_content]
+        for playlist_item in playlist_item_widget_list:
+            self.playlist_list.addItem(playlist_item)
+    
+    def load_playlist_item(self, playlist_item_widget):
+        self.itemPlayed.emit(playlist_item_widget.playlist_item.media_list)
+    
+    def clear_playlist(self):
+        while self.playlist_list.count() > 0:
+            item = self.playlist_list.takeItem(0)
+
+    def on_playlist_list_doubleclick(self, playlist_item):
+        self.load_playlist_item(playlist_item)
+    
+    def dragEnterEvent(self, event: PySide2.QtGui.QDragEnterEvent) -> None:
+        if event.mimeData().hasUrls:
+            event.accept()
+        else:
+            event.ignore()
+    
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls:
+            event.setDropAction(Qt.CopyAction)
+            event.accept()
+        else:
+            event.ignore()
+        
+    def dropEvent(self, event: PySide2.QtGui.QDropEvent) -> None:
+        if event.mimeData().hasUrls:
+            event.setDropAction(Qt.CopyAction)
+            event.accept()
+            
+            if len(event.mimeData().urls()) > 0:
+                url = event.mimeData().urls()[0]
+                self.load_playlist(url.toLocalFile())
+        else:
+            event.ignore()
 
 
 class PlaylistItemWidget(QListWidgetItem):
