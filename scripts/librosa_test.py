@@ -14,16 +14,24 @@ template_stream, template_rate = librosa.load(os.path.dirname(__file__) + "/" + 
 frame_length = len(template_stream)
 hop_length = 512
 
-S_frames = librosa.util.frame(source_stream, frame_length=frame_length, hop_length=int(hop_length), axis=0)
+source_frames = librosa.util.frame(source_stream,
+                              frame_length=frame_length,
+                              hop_length=int(hop_length),
+                              axis=0)
 
 
 xs = []
 ys = []
 abs_ys = []
 
-for i_s, f_s in enumerate(S_frames):
+for i_s, f_s in enumerate(source_frames):
     curr_time = (i_s * hop_length) / source_rate
-    curr_timestamp_str = f"{str(math.floor(curr_time / 360)).zfill(2)}:{str(math.floor(curr_time / 60)).zfill(2)}:{str(math.floor(curr_time) % 60).zfill(2)}.{str(math.floor((curr_time - math.floor(curr_time)) * 100)).zfill(2)}"
+    
+    curr_timestamp_str  = f"{str(math.floor(curr_time / 360)).zfill(2)}:"
+    curr_timestamp_str += f"{str(math.floor(curr_time / 60 )).zfill(2)}:"
+    curr_timestamp_str += f"{str(math.floor(curr_time) % 60).zfill(2)}."
+    curr_timestamp_str += f"{str(math.floor((curr_time - math.floor(curr_time)) * 100)).zfill(2)}"
+
     print(f"Processing {curr_timestamp_str}")
 
     corr = np.correlate(f_s, template_stream)[0]
