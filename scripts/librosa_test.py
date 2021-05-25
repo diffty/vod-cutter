@@ -1,32 +1,40 @@
-import io
+import os
+import math
 import librosa
-import numpy
-from urllib.request import urlopen
+
+import numpy as np
+import matplotlib.pyplot as plt
 
 
-#librosa.load(, duration=1)
+# Implementation based on https://stackoverflow.com/questions/52572693/find-sound-effect-inside-an-audio-file
 
-#source_fp = io.BytesIO(urlopen("file:///Users/diffty/Desktop/test.wav").read())
-#source_stream = librosa.stream(source_fp, block_length=256, frame_length=4096, hop_length=1024)
-source_stream, source_rate = librosa.load("/Users/diffty/Desktop/test.wav")
+source_stream, source_rate = librosa.load(os.path.dirname(__file__) + "/" + "test.wav")
+template_stream, template_rate = librosa.load(os.path.dirname(__file__) + "/" + "test_cropped3.wav")
 
-#template_fp = io.BytesIO(urlopen("file:///Users/diffty/Desktop/test_cropped.wav").read())
-template_stream, template_rate = librosa.load("/Users/diffty/Desktop/test_cropped.wav")
+frame_length = len(template_stream)
+hop_length = 512
 
-print(len(template_stream))
-print(template_rate)
-
-frames = librosa.util.frame(template_stream, frame_length=template_rate, hop_length=template_rate/3, axis=-1)
+S_frames = librosa.util.frame(source_stream, frame_length=frame_length, hop_length=int(hop_length), axis=0)
 
 
-for f in frames:
-    print(f)
-    template_stft = librosa.stft(f, center=False)
+xs = []
+ys = []
+abs_ys = []
 
+for i_s, f_s in enumerate(S_frames):
+    curr_time = (i_s * hop_length) / source_rate
+    curr_timestamp_str = f"{str(math.floor(curr_time / 360)).zfill(2)}:{str(math.floor(curr_time / 60)).zfill(2)}:{str(math.floor(curr_time) % 60).zfill(2)}.{str(math.floor((curr_time - math.floor(curr_time)) * 100)).zfill(2)}"
+    print(f"Processing {curr_timestamp_str}")
 
-for y_block in source_stream:
-    d_block = librosa.stft(y_block, center=False)
-    print(d_block)
+    corr = np.correlate(f_s, template_stream)[0]
 
-    cac = numpy.correlate(d_block, template_stft)
-    print(cac)
+    xs.append(curr_time)
+    ys.append(corr)
+    abs_ys.append(abs(corr))
+    
+
+plt.plot(xs, ys)
+plt.show()
+
+max_idx = np.argmax(abs_ys)
+max_t = xs[max_idx]
