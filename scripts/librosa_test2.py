@@ -1,28 +1,64 @@
+import os
 import math
 import librosa
+
 import numpy as np
+import matplotlib.pyplot as plt
 
-source_stream, source_rate = librosa.load("/Users/diffty/Desktop/test.wav")
-template_stream, template_rate = librosa.load("/Users/diffty/Desktop/test_cropped.wav")
 
-frame_length = source_rate     # source_rate
-hop_length = source_rate/2         # source_rate/4
 
-S_frames = librosa.util.frame(source_stream, frame_length=frame_length, hop_length=int(hop_length), axis=0)
-T_frames = librosa.util.frame(template_stream, frame_length=frame_length, hop_length=int(hop_length), axis=0)
+# Implementation based on https://stackoverflow.com/questions/52572693/find-sound-effect-inside-an-audio-file
+# See also https://librosa.org/blog/2019/07/29/stream-processing/
 
-fp = open("test.txt", "w")
+source_sound, source_rate = librosa.load("/Users/diffty/Desktop/test.wav", sr=None)
+template_sound, template_rate = librosa.load("/Users/diffty/Desktop/test_cropped.wav", sr=None)
 
-for i_s, f_s in enumerate(S_frames):
-    curr_time = (i_s * hop_length) / source_rate
-    #print(curr_time)
-    sum = 0
-    for i_t, f_t in enumerate(T_frames):
-        corr = np.correlate(f_s, f_t)
-        sum += corr
-    
-    if sum > 0:
-        txt = f"{str(math.floor(curr_time / 360)).zfill(2)}:{str(math.floor(curr_time / 60)).zfill(2)}:{str(math.floor(curr_time) % 60).zfill(2)}.{str(math.floor((curr_time - math.floor(curr_time)) * 60)).zfill(2)} -> {sum}"
-        fp.write(txt+"\n")
+source_rate = librosa.get_samplerate("/Users/diffty/Desktop/test.wav")
 
-fp.close()
+frame_length = len(template_sound)
+hop_length = 512
+block_length = 1024
+
+source_stream = librosa.stream("/Users/diffty/Desktop/test.wav",
+                               block_length=block_length,
+                               frame_length=frame_length,
+                               hop_length=int(hop_length))
+
+xs = []
+ys = []
+abs_ys = []
+
+for i_block, block in enumerate(source_stream):
+    i_frame = 0
+
+    while i_frame * hop_length < hop_length * (block_length - 1):
+        frame = block[i_frame * hop_length : i_frame * hop_length + frame_length]
+
+        if frame.shape[0] < frame_length:
+            break
+
+        curr_time = (i_block * block_length * hop_length + i_frame * hop_length) / source_rate
+
+        curr_timestamp_str  = f"{str(math.floor(curr_time / 360)).zfill(2)}:"
+        curr_timestamp_str += f"{str(math.floor(curr_time / 60 )).zfill(2)}:"
+        curr_timestamp_str += f"{str(math.floor(curr_time) % 60).zfill(2)}."
+        curr_timestamp_str += f"{str(math.floor((curr_time - math.floor(curr_time)) * 100)).zfill(2)}"
+
+        print(f"Processing {curr_timestamp_str}")
+
+        corr = np.correlate(frame, template_sound)[0]
+
+        xs.append(curr_time)
+        ys.append(corr)
+        abs_ys.append(abs(corr))
+
+        i_frame += 1
+
+
+plt.plot(xs, ys)
+plt.show()
+
+max_idx = np.argmax(abs_ys)
+max_t = xs[max_idx]
+
+print(max_t)
