@@ -6,20 +6,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+ref_sound_filepath = "C:/Users/f.clement/Desktop/vod_cutter/temp_ref_audio.wav"
+prm_sound_filepath = "C:/Users/f.clement/Desktop/vod_cutter/temp_prm_audio.wav"
 
 # Implementation based on https://stackoverflow.com/questions/52572693/find-sound-effect-inside-an-audio-file
 # See also https://librosa.org/blog/2019/07/29/stream-processing/
 
-source_sound, source_rate = librosa.load("/Users/diffty/Desktop/test.wav", sr=None)
-template_sound, template_rate = librosa.load("/Users/diffty/Desktop/test_cropped.wav", sr=None)
+source_sound, source_rate = librosa.load(ref_sound_filepath, sr=None)
+template_sound, template_rate = librosa.load(prm_sound_filepath, sr=None)
 
-source_rate = librosa.get_samplerate("/Users/diffty/Desktop/test.wav")
+source_rate = librosa.get_samplerate(ref_sound_filepath)
 
 frame_length = len(template_sound)
-hop_length = 512
+hop_length = 128
 block_length = 1024
 
-source_stream = librosa.stream("/Users/diffty/Desktop/test.wav",
+source_stream = librosa.stream(ref_sound_filepath,
                                block_length=block_length,
                                frame_length=frame_length,
                                hop_length=int(hop_length))
@@ -39,8 +41,8 @@ for i_block, block in enumerate(source_stream):
 
         curr_time = (i_block * block_length * hop_length + i_frame * hop_length) / source_rate
 
-        curr_timestamp_str  = f"{str(math.floor(curr_time / 360)).zfill(2)}:"
-        curr_timestamp_str += f"{str(math.floor(curr_time / 60 )).zfill(2)}:"
+        curr_timestamp_str  = f"{str(math.floor(curr_time / 3600)).zfill(2)}:"
+        curr_timestamp_str += f"{str(math.floor(curr_time / 60 % 60)).zfill(2)}:"
         curr_timestamp_str += f"{str(math.floor(curr_time) % 60).zfill(2)}."
         curr_timestamp_str += f"{str(math.floor((curr_time - math.floor(curr_time)) * 100)).zfill(2)}"
 
