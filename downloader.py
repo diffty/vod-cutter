@@ -5,9 +5,10 @@ import youtube_dl
 import streamlink
 
 import utils.time
+import detection.sound
 
 
-def get_duration(video_url):
+def get_video_duration(video_url):
     ydl_opts = {
         'noplaylist': True,
         'quiet': True,
@@ -19,41 +20,59 @@ def get_duration(video_url):
         return dictMeta["duration"]
 
 
-def download_audio(input_url, output_video, start_time=None, duration=None, rate=None):
-    streams = streamlink.streams(input_url)
-
+def get_audio_stream_url(video_url):
+    streams = streamlink.streams(video_url)
     audio_sources = list(filter(lambda n: "audio" in n, streams))
-    
-    ffmpeg_flags = ""
-    streamlink_flags = ""
-    
+
     if audio_sources:
+        audio_source_name = audio_sources[0]
+        return streams[audio_source_name].url
+
+
+def download_audio(input_url, output_video, start_time=None, duration=None, rate=None):
+    audio_stream_url = get_audio_stream_url(input_url)
+    
+    ffmpeg_flags = []
+    
+    if audio_stream_url:
         if rate:
-            ffmpeg_flags += f" -ar {rate}"
+            ffmpeg_flags += ["-ar", str(rate)]
         
         if start_time:
-            if type(start_time) is float:
-                d = get_duration(input_url)
-                start_time = utils.time.format_time(start_time * d)
-                print(start_time)
-
-            streamlink_flags += f" --hls-start-offset {start_time}"
+            ffmpeg_flags += ["-ss", str(start_time)]
         
         if duration:
-            streamlink_flags += f" --hls-duration {duration}"
+            ffmpeg_flags += ["-t", str(duration)]
         
-        # ffmpeg -ss 00:30:00 -to 00:30:30 -i {url_video_or_playlist} caca.mp4
-        print(f'streamlink {streamlink_flags} --player-passthrough hls "{input_url}" {audio_sources[0]} -O | ffmpeg -y -i pipe:0 {ffmpeg_flags} {output_video}')
-        process = subprocess.Popen(f'streamlink {streamlink_flags} --player-passthrough hls "{input_url}" {audio_sources[0]} -O | ffmpeg -y -i pipe:0 {ffmpeg_flags} {output_video}', shell=True)
+        process = subprocess.Popen(['ffmpeg', '-y', '-i', audio_stream_url, *ffmpeg_flags, output_video])
         process.wait()
         return process.returncode == 0
+    
+    return False
 
 
+def find_offset(reference_video_url, permanent_video_url_list, permanent_video_pos=0.5):
+    permanent_video_start_time_list = []
 
-def find_offset(reference_video_url, permanent_video_url):
-    #download_audio(reference_video_url, "temp_ref_audio.wav", rate=8000)
-    download_audio(permanent_video_url, "temp_prm_audio.wav", start_time=0.5, duration="00:01:00", rate=8000)
+    for permanent_video_url in permanent_video_url_list:
+        permanent_video_start_time = permanent_video_pos * get_video_duration(permanent_video_url)
+        permanent_video_start_time_list.append(permanent_video_start_time)
+    
+    if not os.path.exists("temp_ref_audio.wav"):
+        download_audio(reference_video_url, "temp_ref_audio.wav", rate=8000)
+
+    offset_list = []
+
+    for i, permanent_video_url in enumerate(permanent_video_url_list):
+        permanent_video_start_time_str = utils.time.format_time(permanent_video_start_time_list[i])
+        download_audio(permanent_video_url, "temp_prm_audio.wav", start_time=permanent_video_start_time_str, duration="00:01:00", rate=8000)
+        detected_sample_time, max_value = detection.sound.find_audio_sample("temp_ref_audio.wav", "temp_prm_audio.wav")
+        print(f"Sample for {permanent_video_url}, starting at {permanent_video_start_time_str} may be found at : {utils.time.format_time(detected_sample_time)} ({round(detected_sample_time, 2)}s)")
+        offset_list.append(permanent_video_start_time - detected_sample_time)
+
+    return offset_list
 
 
 if __name__ == "__main__":
-    find_offset("https://www.twitch.tv/videos/996694279", "https://www.youtube.com/watch?v=S3iYAp-RYok")
+    offset_list = find_offset("https://www.twitch.tv/videos/995650292", ["https://www.youtube.com/watch?v=atdQeh6NLZQ", "https://www.youtube.com/watch?v=bXuDRvjBsxw", "https://www.youtube.com/watch?v=_0TDeDgcI5c", "https://www.youtube.com/watch?v=g3pzgTN1Dtc", "https://www.youtube.com/watch?v=NlNvh57clj0"])
+    print(offset_list)
