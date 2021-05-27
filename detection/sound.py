@@ -29,7 +29,7 @@ def find_audio_sample(source_path, template_path):
 
     frame_length = len(template_sound)
     block_length = 1024
-    hop_length = 512
+    hop_length = 128      # 512
 
     source_stream = librosa.stream(source_path,
                                    block_length=block_length,
@@ -50,7 +50,7 @@ def find_audio_sample(source_path, template_path):
 
             curr_time = (i_block * block_length * hop_length + i_frame * hop_length) / source_rate
 
-            print(f"Processing {format_time(curr_time)}")
+            #print(f"Processing {format_time(curr_time)}")
 
             corr = abs(np.correlate(frame, template_sound)[0])
 
@@ -66,8 +66,8 @@ def find_audio_sample(source_path, template_path):
 if __name__ == "__main__":
     t_start = time.time()
 
-    found_time, found_value = find_audio_sample("D:/bigass_test.wav",
-                                                "D:/bigass_test_cut.wav")
+    found_time, found_value = find_audio_sample("C:/Users/f.clement/Desktop/vod_cutter/temp_ref_audio.wav",
+                                                "C:/Users/f.clement/Desktop/vod_cutter/temp_prm_audio.wav")
 
     t_end = time.time()
 
