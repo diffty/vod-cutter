@@ -54,9 +54,6 @@ class VODSync(QMainWindow):
     def __init__(self):
         QMainWindow.__init__(self)
 
-        self.twitch_client_id = config.TWITCH_API_CLIENT_ID
-        self.twitch_oauth_token = config.TWITCH_API_OAUTH_TOKEN
-
         self.twitch_interface = TwitchInterface(
             api_client_id=config.TWITCH_API_CLIENT_ID,
             api_oauth_token=config.TWITCH_API_OAUTH_TOKEN,
