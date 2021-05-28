@@ -4,7 +4,7 @@ import datetime
 
 
 def format_time(seconds):
-    return f"{str(math.floor(seconds / 3600)).zfill(2)}:{str(math.floor(seconds / 60 % 60)).zfill(2)}:{str(math.floor(seconds % 60)).zfill(2)}"
+    return f"{str(math.floor(seconds / 3600) % 24).zfill(2)}:{str(math.floor(seconds / 60 % 60)).zfill(2)}:{str(math.floor(seconds % 60)).zfill(2)}"
 
 
 def parse_duration(d):
@@ -22,3 +22,5 @@ def parse_duration(d):
         return None
 
 
+if __name__ == "__main__":
+    print(format_time(22870))
