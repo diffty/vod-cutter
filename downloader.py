@@ -8,7 +8,6 @@ import pprint
 
 import youtube_dl
 import streamlink
-from youtube_dl.utils import date_formats
 
 import utils.time
 import detection.sound
@@ -53,6 +52,7 @@ def get_video_duration(video_url):
 
 def get_audio_stream_url(video_url):
     streams = streamlink.streams(video_url)
+
     audio_sources = list(filter(lambda n: "audio" in n, streams))
 
     if audio_sources:
@@ -80,6 +80,26 @@ def download_audio(input_url, output_video, start_time=None, duration=None, rate
         return process.returncode == 0
     
     return False
+
+
+def download_audio_ytdl(input_url, output_video, start_time=None, duration=None, rate=None):
+    output_video_basename = os.path.splitext(output_video)[0]
+
+    ffmpeg_flags = []
+    
+    if rate:
+        ffmpeg_flags += ["-ar", str(rate)]
+    
+    if start_time:
+        ffmpeg_flags += ["-ss", str(start_time)]
+    
+    if duration:
+        ffmpeg_flags += ["-t", str(duration)]
+    
+    # youtube-dl --postprocessor-args "-ss 00:01:00 -to 00:02:00" "https://www.youtube.com/watch?v=dc7I-i7sPrg"
+    process = subprocess.Popen(['youtube-dl', '-x', '--audio-format', 'wav', '-f', '249', '-o', f'{output_video_basename}.%(ext)s', '--no-playlist', '--postprocessor-args', " ".join(ffmpeg_flags), input_url])
+    process.wait()
+    return process.returncode == 0
 
 
 def get_metadata_filename(export_metadatas_folder, metadatas, ref_twitch_id, prm_video_id):
@@ -123,7 +143,11 @@ def find_offset(ref_video_url, prm_video_url_list, prm_video_pos=0.5):
 
         download_start_time = time.time()
 
-        download_audio(prm_video_url, "temp_prm_audio.wav", start_time=prm_video_start_time_str, duration="00:01:00", rate=8000)
+        try:
+            download_audio(prm_video_url, "temp_prm_audio.wav", start_time=prm_video_start_time_str, duration="00:01:00", rate=8000)
+        except streamlink.exceptions.PluginError as e:
+            log.add(f"Can't download permanent video {prm_video_url} using streamlink. Retring using youtube-dl.", prefix="!")
+            download_audio_ytdl(prm_video_url, "temp_prm_audio.wav", start_time=prm_video_start_time_str, duration="00:01:00", rate=8000)
 
         download_time = time.time() - download_start_time
         log.add(f"Downloaded permanent video chunk. Download duration : {utils.time.format_time(download_time)} ({round(download_time, 2)}s)")
