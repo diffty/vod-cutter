@@ -10,7 +10,7 @@ class Playlist:
     
     def remove(self, item):
         if item not in self.playlist_content:
-            raise Exception("<!!> Item to remove not founod in playlist.")
+            raise Exception("<!!> Item to remove not found in playlist.")
         self.playlist_content.remove(item)
     
     def remove_idx(self, item_idx):
@@ -37,10 +37,14 @@ class PlaylistItem:
     def __init__(self):
         self.media_list = []
 
-    def add_media(self, media_url):
+    def add_media(self, media_url, time=0):
         if not self.validate_media(media_url):
             raise Exception(f"<!!> Invalid media url : {media_url}")
-        self.media_list.append(media_url)
+
+        self.media_list.append({
+            "url": media_url,
+            "time": time,
+        })
     
     def validate_media(self, media_url):
         return True
@@ -52,7 +56,7 @@ class PlaylistItem:
         
         new_item = PlaylistItem()
         for m in media_list:
-            new_item.add_media(m)
+            new_item.add_media(m["url"], m["time"])
 
         return new_item
     

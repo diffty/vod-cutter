@@ -72,13 +72,16 @@ class VODSync(QMainWindow):
 
         self.playlist_widget = PlaylistWidget()
 
-        self.decks_layout = QHBoxLayout()
+        self.sync_btn = QPushButton(text="SYNC")
 
         self.match_btn = QPushButton(text="MATCH")
+
+        self.decks_layout = QHBoxLayout()
 
         
         self.main_layout.addWidget(self.launch_vlc_btn)
         self.main_layout.addWidget(self.playlist_widget)
+        self.main_layout.addWidget(self.sync_btn)
         self.main_layout.addLayout(self.decks_layout)
         self.main_layout.addWidget(self.match_btn)
 
@@ -119,6 +122,7 @@ class VODSync(QMainWindow):
 
         self.setCentralWidget(self.main_widget)
 
+        self.sync_btn.clicked.connect(self.sync_from_playlist_item)
         self.match_btn.clicked.connect(self.match)
         self.export_btn.clicked.connect(self.export_metadatas)
         self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
@@ -175,17 +179,23 @@ class VODSync(QMainWindow):
         print(time_offset)
         print(self.corrected_time)
 
+    def sync_from_playlist_item(self):
+        for i, item in enumerate(self.playlist_widget.playlist_list.selectedItems()):
+            if item.__class__ is PlaylistItemWidget:
+                for i, m in enumerate(item.playlist_item.media_list):
+                    self.video_decks[i].seek(m["time"])
+
     def on_launch_vlc(self):
         for deck in self.video_decks:
             deck.vlc_instance.launch()
     
-    def on_playlist_item_played(self, media_list):
-        for i, media_url in enumerate(media_list):
+    def on_playlist_item_played(self, playlist_item):
+        for i, media_info in enumerate(playlist_item):
             if i >= len(self.video_decks):
                 print("<!> Not enough decks to load all the playlist item videos!")
                 break
-            
-            self.video_decks[i].load_video_url(media_url)
+                
+            self.video_decks[i].load_video_url(media_info["url"])
 
 
 class VideoDeck(QWidget):
@@ -298,6 +308,9 @@ class VideoDeck(QWidget):
             except requests.exceptions.ConnectionError:
                 print("<!!> Can't connect to local VLC instance.")
     
+    def seek(self, time):
+        self.vlc_instance.set_current_time(time)
+
     def get_service_metadatas(self):
         pass
 
@@ -374,7 +387,6 @@ class VideoDeck(QWidget):
                 self.load_video_url(url.url())
         else:
             event.ignore()
-
 
 
 class PlaylistWidget(QWidget):
@@ -454,8 +466,7 @@ class PlaylistItemWidget(QListWidgetItem):
     
     def set_playlist_item(self, new_playlist_item):
         self.playlist_item = new_playlist_item
-        self.setText(", ".join(self.playlist_item.media_list))
-        print(", ".join(self.playlist_item.media_list))
+        self.setText(", ".join(map(lambda m: m["url"], self.playlist_item.media_list)))
 
 
 if __name__ == "__main__":
