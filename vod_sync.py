@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 
 import requests
 import streamlink
+from youtube_dl import YoutubeDL
 
 import config
 from utils.time import format_time, parse_duration
@@ -72,7 +73,6 @@ class VODSync(QMainWindow):
 
         self.playlist_widget = PlaylistWidget()
 
-        self.sync_btn = QPushButton(text="SYNC")
 
         self.match_btn = QPushButton(text="MATCH")
 
@@ -81,7 +81,6 @@ class VODSync(QMainWindow):
         
         self.main_layout.addWidget(self.launch_vlc_btn)
         self.main_layout.addWidget(self.playlist_widget)
-        self.main_layout.addWidget(self.sync_btn)
         self.main_layout.addLayout(self.decks_layout)
         self.main_layout.addWidget(self.match_btn)
 
@@ -122,7 +121,6 @@ class VODSync(QMainWindow):
 
         self.setCentralWidget(self.main_widget)
 
-        self.sync_btn.clicked.connect(self.sync_from_playlist_item)
         self.match_btn.clicked.connect(self.match)
         self.export_btn.clicked.connect(self.export_metadatas)
         self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
@@ -144,7 +142,13 @@ class VODSync(QMainWindow):
     def add_video_deck(self, vlc_port=8080):
         new_deck = VideoDeck(VLCInterface(config.VLC_PATH, port=vlc_port))
         self.video_decks.append(new_deck)
-        self.decks_layout.addWidget(new_deck)
+        deck_v_layout = QVBoxLayout()
+        sync_btn = QPushButton("SYNC ALL TO THIS DECK")
+        new_deck_idx = len(self.video_decks)-1
+        sync_btn.clicked.connect(lambda: self.sync_from_playlist_item(deck_ids=None, ref_deck_id=new_deck_idx))
+        deck_v_layout.addWidget(new_deck)
+        deck_v_layout.addWidget(sync_btn)
+        self.decks_layout.addLayout(deck_v_layout)
     
     def export_metadatas(self, fixed_created_at):
         time_offset = abs(self.video_decks[0].vlc_instance.get_current_time() - self.video_decks[1].vlc_instance.get_current_time())
@@ -175,15 +179,16 @@ class VODSync(QMainWindow):
         self.timecode_target_field.setText(str(self.video_decks[1].vlc_instance.get_current_time()))
         self.target_start_time_field.setText(str(self.corrected_time))
 
-        print(created_at)
-        print(time_offset)
-        print(self.corrected_time)
+    def sync_from_playlist_item(self, deck_ids, ref_deck_id=0):
+        if deck_ids is None:
+            deck_ids = [i for i, d in enumerate(self.video_decks) if i != ref_deck_id]
 
-    def sync_from_playlist_item(self):
         for i, item in enumerate(self.playlist_widget.playlist_list.selectedItems()):
             if item.__class__ is PlaylistItemWidget:
-                for i, m in enumerate(item.playlist_item.media_list):
-                    self.video_decks[i].seek(m["time"])
+                for deck_id in deck_ids:
+                    if deck_id != ref_deck_id:
+                        time_offset = item.playlist_item.media_list[ref_deck_id]["time"] - item.playlist_item.media_list[deck_id]["time"]
+                        self.video_decks[deck_id].seek(math.floor(self.video_decks[ref_deck_id].vlc_instance.get_current_time() - time_offset))
 
     def on_launch_vlc(self):
         for deck in self.video_decks:
@@ -277,11 +282,25 @@ class VideoDeck(QWidget):
                     raise Exception(f"<!!> Can't find best stream")
 
             if not self.loaded_video.is_local:
+                streams = []
+
                 try:
                     streams = streamlink.streams(video_url)
                 except streamlink.exceptions.PluginError as e:
                     print(f"<!!> Error while loading video {video_url} : {e}")
-                    return
+                    ydl = YoutubeDL(params={"noplaylist": True})
+                    try:
+                        infos = ydl.extract_info(video_url, download=False)
+                        for f in infos["formats"]:
+                            if f["format_note"] == "720p":
+                                video_url = f["url"]
+                                break
+                        else:
+                            print(f"<!!> Not found suitable format not found for video {video_url}")
+                        
+                    except Exception as e:
+                        print(f"<!!> Other error while loading video {video_url} with youtubedl : {e}")
+                        return
 
                 if streams:
                     self.loaded_video.video_url = find_suitable_stream(streams) #streams["best"]
