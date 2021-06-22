@@ -22,13 +22,13 @@ def export_metadatas(ref_video_id, prm_video_id, prm_video_service, prm_video_du
     created_at = metadatas.get("created_at")
 
     log.add(f"Calculated time offset: {time_offset}")
-    corrected_time = created_at - datetime.timedelta(seconds=time_offset)
+    corrected_time = created_at + datetime.timedelta(seconds=time_offset)
 
     new_metadatas["permanent_id"] = {
         "id": prm_video_id,
         "service": prm_video_service,
         "new_created_at": corrected_time.isoformat(),
-        "created_delay": math.floor(-time_offset * 1000),
+        "created_delay": math.floor(time_offset * 1000),
         "duration": math.floor(prm_video_duration * 1000),
     }
 

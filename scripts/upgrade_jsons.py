@@ -72,8 +72,10 @@ for log_filename in os.listdir(LOGS_DIR):
         else:
             raise Exception(f"<!!> Can't properly parse data in log {log_filename}")
         
-        if float(processed_time_offset) > 10.:
-            print(f"<i> {processed_time_offset=} > 10, skipping.")
+        time_offset = parse_str_time(sample_pos) - parse_str_time(chunk_pos_in_perm)
+
+        if float(time_offset) < -10.:
+            print(f"<i> {time_offset=} < -10, skipping.")
             continue
 
         json_filename = os.path.splitext(log_filename)[0] + ".json"
@@ -85,7 +87,7 @@ for log_filename in os.listdir(LOGS_DIR):
         
             src_metadatas = retrieve_metadatas(src_id)
 
-            metas = export_metadatas(src_id, prm_id, prm_video_service, get_video_duration(perm_url), float(processed_time_offset))
+            metas = export_metadatas(src_id, prm_id, prm_video_service, get_video_duration(perm_url), float(time_offset))
             
             json_ok_filepath = f"{OK_LOGS_DIR}/{json_filename}"
 
