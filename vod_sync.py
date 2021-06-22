@@ -19,6 +19,9 @@ from interface.vlc import VLCInterface
 from interface.twitch import TwitchInterface
 from ui.filepicker_widget import FilePicker
 from playlist import Playlist
+from medias import get_video_duration
+from metadatas import get_metadata_filename
+from metadatas.write import export_metadatas, write_metadatas
 
 import PySide2
 
@@ -150,20 +153,30 @@ class VODSync(QMainWindow):
         deck_v_layout.addWidget(sync_btn)
         self.decks_layout.addLayout(deck_v_layout)
     
-    def export_metadatas(self, fixed_created_at):
+    def export_metadatas(self):
         time_offset = abs(self.video_decks[0].vlc_instance.get_current_time() - self.video_decks[1].vlc_instance.get_current_time())
 
-        created_at = self.video_decks[0].loaded_video.metadatas.get("created_at")
+        #created_at = self.video_decks[0].loaded_video.metadatas.get("created_at")
         
-        corrected_time = created_at + datetime.timedelta(seconds=time_offset)
+        #corrected_time = created_at + datetime.timedelta(seconds=time_offset)
 
-        fixed_metadatas = dict(self.video_decks[0].loaded_video.metadatas)
-        fixed_metadatas["created_at"] = corrected_time.isoformat()
-        fixed_metadatas["permanent_id"] = {
-            "service": self.video_decks[1].loaded_video.metadatas["service"],
-            "id": self.video_decks[1].loaded_video.metadatas["id"]
-        }
-        print(fixed_metadatas)
+        #fixed_metadatas = dict(self.video_decks[0].loaded_video.metadatas)
+        #fixed_metadatas["created_at"] = corrected_time.isoformat()
+        #fixed_metadatas["permanent_id"] = {
+        #    "service": self.video_decks[1].loaded_video.metadatas["service"],
+        #    "id": self.video_decks[1].loaded_video.metadatas["id"]
+        #}
+        #print(fixed_metadatas)
+
+        ref_video_id = self.video_decks[0].loaded_video.metadatas["id"]
+        prm_video_id = self.video_decks[1].loaded_video.metadatas["id"]
+        prm_video_service = self.video_decks[1].loaded_video.metadatas["service"]
+        prm_video_duration = get_video_duration(self.video_decks[1].loaded_video.video_url)
+
+        metadatas = export_metadatas(ref_video_id, prm_video_id, prm_video_service, prm_video_duration, time_offset)
+        print(metadatas)
+        metadatas_filename = get_metadata_filename(config.EXPORT_METADATAS_PATH, metadatas, ref_video_id, prm_video_id)
+        write_metadatas(metadatas_filename, metadatas)
 
     def match(self):
         if len(self.video_decks) < 2:

@@ -18,7 +18,6 @@ class VLCInterface:
     def open_url(self, url):
         file_url = urllib.parse.quote(url)
         r = requests.get(f"http://localhost:{self.port}/requests/status.xml?command=in_play&input={file_url}", auth=self.auth)
-        print(r.text)
         return ET.fromstring(r.text)
 
     def get_status(self):
