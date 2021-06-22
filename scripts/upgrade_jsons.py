@@ -14,8 +14,8 @@ from metadatas.write import export_metadatas
 
 LOG_REG = re.compile(r"(?:Starting to download a chunk of (\d{2}:\d{2}:\d{2}) of (https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)) at (\d{2}:\d{2}:\d{2})|Download duration : (\d{2}:\d{2}:\d{2})|Found sample \(maybe\) in permanent video at (\d{2}:\d{2}:\d{2})|Search duration : (\d{2}:\d{2}:\d{2})|Calculated time offset: (-?\d+(?:.\d*)?))")
 FILENAME_REG = re.compile(r"([a-z_]+)_(\d+)_(\d+)_([a-z0-9-_]+)\.log", re.I)
-LOGS_DIR = "C:/Users/DiFFtY/Downloads/Telegram Desktop/metadatas_01"
-OK_LOGS_DIR = "C:/Users/DiFFtY/Downloads/Telegram Desktop/metadatas_01/OK_AND_UPGRADED"
+LOGS_DIR = "C:/Users/DiFFtY/Downloads/Telegram Desktop/vod_cutter (2)/metadatas_01/OK_AND_UPGRADED"
+OK_LOGS_DIR = "C:/Users/DiFFtY/Downloads/Telegram Desktop/vod_cutter (2)/metadatas_01/UPGRADED"
 
 
 if not os.path.exists(OK_LOGS_DIR):
@@ -80,6 +80,9 @@ for log_filename in os.listdir(LOGS_DIR):
 
         json_filename = os.path.splitext(log_filename)[0] + ".json"
         json_filepath = f"{LOGS_DIR}/{json_filename}"
+
+        if not os.path.exists(json_filepath):
+            continue
 
         with open(json_filepath) as fp_json:
             json_data = json.load(fp_json)

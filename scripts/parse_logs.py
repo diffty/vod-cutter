@@ -7,8 +7,8 @@ import json
 
 
 LOG_REG = re.compile(r"(?:Starting to download a chunk of (\d{2}:\d{2}:\d{2}) of (https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)) at (\d{2}:\d{2}:\d{2})|Download duration : (\d{2}:\d{2}:\d{2})|Found sample \(maybe\) in permanent video at (\d{2}:\d{2}:\d{2})|Search duration : (\d{2}:\d{2}:\d{2})|Calculated time offset: (-?\d+(?:.\d*)?))")
-FILENAME_REG = re.compile(r"([a-z_]+)_(\d+)_(\d+)_([a-z0-9-_]+)\.log", re.I)
-LOGS_DIR = "metadatas"
+FILENAME_REG = re.compile(r"([a-z0-9_]+)_(\d+)_(\d+)_([a-z0-9-_]+)\.log", re.I)
+LOGS_DIR = "C:/Users/DiFFtY/Downloads/Telegram Desktop/vod_cutter (2)/metadatas_01/OK_AND_UPGRADED"
 OK_LOGS_DIR = "metadatas/OK"
 
 
@@ -27,20 +27,28 @@ with open("results.csv", "w", newline='') as csvfile:
     csvwriter.writerow([
         "streamer_login",
         "creation_timestamp",
-        "chunk_pos_in_perm",
         "src_id",
         "prm_id",
-        "processed_time_offset",
+        "time_offset",
         "src_url",
-        "perm_url",
+        "prm_url",
         "sample_pos",
+        "found_pos",
         "dl_duration",
         "search_duration",
-        "chunk_duration",
     ])
 
     for log_filename in os.listdir(LOGS_DIR):
         if os.path.splitext(log_filename)[1].lower() == ".log":
+            json_filepath = LOGS_DIR + "/" + os.path.splitext(log_filename)[0] + ".json"
+
+            if not os.path.exists(json_filepath):
+                continue
+
+            with open(json_filepath, "r") as fp:
+                data = json.load(fp)
+                time_offset = data["permanent_id"]["created_delay"] / 1000.
+
             parse_filename_res = FILENAME_REG.search(log_filename)
             if parse_filename_res:
                 streamer_login = parse_filename_res.group(1)
@@ -78,31 +86,29 @@ with open("results.csv", "w", newline='') as csvfile:
             csvwriter.writerow([
                 streamer_login,
                 creation_datetime.strftime("%Y-%m-%d %H:%M:%S"),
-                chunk_pos_in_perm,
                 src_id,
                 prm_id,
-                round(float(processed_time_offset), 3),
+                round(float(time_offset), 3),
                 src_url,
                 perm_url,
                 sample_pos,
+                chunk_pos_in_perm,
                 dl_duration,
                 search_duration,
-                chunk_duration,
             ])
 
-            if float(processed_time_offset) < 1.00:
-                #shutil.copyfile(f"{LOGS_DIR}/{log_filename}", f"{OK_LOGS_DIR}/{log_filename}")
-                print("{} -> {}".format(f"{LOGS_DIR}/{log_filename}", f"{OK_LOGS_DIR}/{log_filename}"))
-                sync_tool_playlist.append([
-                    {
-                        "url": src_url,
-                        "time": parse_str_time(sample_pos),
-                    },
-                    {
-                        "url": perm_url,
-                        "time": parse_str_time(chunk_pos_in_perm),
-                    }
-                ])
+            #shutil.copyfile(f"{LOGS_DIR}/{log_filename}", f"{OK_LOGS_DIR}/{log_filename}")
+            #print("{} -> {}".format(f"{LOGS_DIR}/{log_filename}", f"{OK_LOGS_DIR}/{log_filename}"))
+            sync_tool_playlist.append([
+                {
+                    "url": src_url,
+                    "time": parse_str_time(sample_pos),
+                },
+                {
+                    "url": perm_url,
+                    "time": parse_str_time(chunk_pos_in_perm),
+                }
+            ])
 
     with open("synced_playlist.json", "w") as fp:
         json.dump(sync_tool_playlist, fp, indent=4)
