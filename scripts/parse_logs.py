@@ -8,7 +8,8 @@ import json
 
 LOG_REG = re.compile(r"(?:Starting to download a chunk of (\d{2}:\d{2}:\d{2}) of (https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)) at (\d{2}:\d{2}:\d{2})|Download duration : (\d{2}:\d{2}:\d{2})|Found sample \(maybe\) in permanent video at (\d{2}:\d{2}:\d{2})|Search duration : (\d{2}:\d{2}:\d{2})|Calculated time offset: (-?\d+(?:.\d*)?))")
 FILENAME_REG = re.compile(r"([a-z0-9_]+)_(\d+)_(\d+)_([a-z0-9-_]+)\.log", re.I)
-LOGS_DIR = "C:/Users/DiFFtY/Downloads/Telegram Desktop/vod_cutter (2)/metadatas_01/OK_AND_UPGRADED"
+LOGS_DIR = "C:/Users/DiFFtY/Downloads/Telegram Desktop/vod_cutter (2)/metadatas_02/OK_AND_UPGRADED"
+LOGS_DIR = "C:/Users/DiFFtY/Downloads/Telegram Desktop/vod_cutter (2)/metadatas_03"
 OK_LOGS_DIR = "metadatas/OK"
 
 
@@ -42,12 +43,12 @@ with open("results.csv", "w", newline='') as csvfile:
         if os.path.splitext(log_filename)[1].lower() == ".log":
             json_filepath = LOGS_DIR + "/" + os.path.splitext(log_filename)[0] + ".json"
 
-            if not os.path.exists(json_filepath):
-                continue
+            #if not os.path.exists(json_filepath):
+            #    continue
 
-            with open(json_filepath, "r") as fp:
-                data = json.load(fp)
-                time_offset = data["permanent_id"]["created_delay"] / 1000.
+            #with open(json_filepath, "r") as fp:
+            #    data = json.load(fp)
+            #    time_offset = data["permanent_id"]["created_delay"] / 1000.
 
             parse_filename_res = FILENAME_REG.search(log_filename)
             if parse_filename_res:
@@ -81,6 +82,11 @@ with open("results.csv", "w", newline='') as csvfile:
             else:
                 raise Exception(f"<!!> Can't properly parse data in log {log_filename}")
 
+            time_offset = round(float(parse_str_time(sample_pos) - parse_str_time(chunk_pos_in_perm)), 3)
+
+            if time_offset < -10:
+                continue
+
             src_url = f"https://www.twitch.tv/videos/{src_id}"
 
             csvwriter.writerow([
@@ -88,11 +94,11 @@ with open("results.csv", "w", newline='') as csvfile:
                 creation_datetime.strftime("%Y-%m-%d %H:%M:%S"),
                 src_id,
                 prm_id,
-                round(float(time_offset), 3),
+                time_offset,
                 src_url,
                 perm_url,
-                sample_pos,
                 chunk_pos_in_perm,
+                sample_pos,
                 dl_duration,
                 search_duration,
             ])
@@ -110,5 +116,5 @@ with open("results.csv", "w", newline='') as csvfile:
                 }
             ])
 
-    with open("synced_playlist.json", "w") as fp:
-        json.dump(sync_tool_playlist, fp, indent=4)
+    #with open("synced_playlist_02.json", "w") as fp:
+    #    json.dump(sync_tool_playlist, fp, indent=4)
