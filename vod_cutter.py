@@ -290,8 +290,8 @@ class VODCutter(QMainWindow):
             
             try:
                 self.update_twitch_metadatas()
-            except requests.exceptions.ConnectionError:
-                print("<!!> Can't connect to Twitch API.")
+            except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
+                print(f"<!!> Can't connect to Twitch API : {e}")
             
             try:
                 self.vlc_interface.open_url(self.loaded_video.filepath)
@@ -333,6 +333,12 @@ class VODCutter(QMainWindow):
         self.duration_field.setText(format_time(duration.seconds))
         self.title_field.setText(metadatas["title"])
         self.streamer_field.setText(metadatas["user_login"])
+
+        video_games_list = self.twitch_interface.get_video_games_list(metadatas["id"])
+
+        if video_games_list is None:
+            print("<!> No video game chapter list found in stream")
+            return
 
         for moment in self.twitch_interface.get_video_games_list(metadatas["id"]):
             s = Segment()
@@ -411,15 +417,19 @@ class VODCutter(QMainWindow):
         created_at = self.loaded_video.metadatas.get("created_at", None)
         user_login = self.loaded_video.metadatas.get("user_login", None)
         
-        if not (video_id and created_at and user_login):
-            raise Exception("<!!> Missing video metadatas")
+        output_file_name = "output.mp4"
+
+        if video_id and created_at and user_login:
+            created_at_timestamp = int(datetime.datetime.timestamp(created_at))
+            output_file_name = f"{user_login}_{created_at_timestamp}_{video_id}.mp4"
+        else:
+            print(f"<!> Missing video metadatas. Writing file to {output_file_name}")
         
-        created_at_timestamp = int(datetime.datetime.timestamp(created_at))
         
         if self.loaded_video.is_local:
-            cmd = f'ffmpeg -i "{self.loaded_video.filepath}" -ss {segment_obj.start_time} -to {segment_obj.end_time} -c:v copy -c:a copy "{user_login}_{created_at_timestamp}_{video_id}.mp4"'
+            cmd = f'ffmpeg -i "{self.loaded_video.filepath}" -ss {segment_obj.start_time} -to {segment_obj.end_time} -c:v copy -c:a copy {output_file_name}'
         else:
-            cmd = f'streamlink -f --hls-start-offset {format_time(segment_obj.start_time)} --hls-duration {format_time(segment_obj.end_time - segment_obj.start_time)} --player-passthrough hls "{self.loaded_video.filepath}" best -o "{user_login}_{created_at_timestamp}_{video_id}.mp4"'
+            cmd = f'streamlink -f --hls-start-offset {format_time(segment_obj.start_time)} --hls-duration {format_time(segment_obj.end_time - segment_obj.start_time)} --player-passthrough hls "{self.loaded_video.filepath}" best -o {output_file_name}'
 
         print(cmd)
         
