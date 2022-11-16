@@ -6,7 +6,6 @@ import math
 import datetime
 import subprocess
 import urllib.parse
-import urllib3
 import xml.etree.ElementTree as ET
 
 import requests
@@ -16,12 +15,17 @@ import config
 from utils.time import format_time, parse_duration
 from interface.vlc import VLCInterface
 from interface.twitch import TwitchInterface
+from ui.videoplayer_widget import MediaPlayer
 
-from PySide2.QtWidgets import QApplication, QMainWindow
-from PySide2.QtWidgets import QWidget, QLabel, QLineEdit, QListWidget, QPushButton
-from PySide2.QtWidgets import QListWidgetItem
-from PySide2.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout
-from PySide2.QtWidgets import QFileDialog
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtWidgets import QWidget, QLabel, QLineEdit, QListWidget, QPushButton, QSlider
+from PySide6.QtWidgets import QListWidgetItem, QStyle
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QGridLayout
+from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QDockWidget
+from PySide6.QtMultimedia import QMediaPlayer
+from PySide6.QtMultimediaWidgets import QVideoWidget
 
 
 ### Snippets ###
@@ -135,98 +139,186 @@ class VODCutter(QMainWindow):
 
         self.main_layout = QVBoxLayout()
 
-        self.launch_vlc_btn = QPushButton("Launch VLC")
+        self.video_player_widget = MediaPlayer()
+        self.main_layout.addWidget(self.video_player_widget)
 
-        self.info_layout = QGridLayout()
+        # Transport slider
+        self.position_slider_widget = QSlider()
+        self.position_slider_widget.setOrientation(Qt.Horizontal)
 
-        self.file_picker_layout = QHBoxLayout()
+        def _on_media_position_changed(new_position: int):
+            if not self.video_player_widget.is_seeking:
+                self.position_slider_widget.setValue(new_position)
 
-        self.file_path_field = QLineEdit()
-        self.file_browser_btn = QPushButton(text="...")
+        def _on_media_duration_changed(new_duration: int):
+            self.position_slider_widget.setRange(0, new_duration)
 
-        self.file_picker_layout.addWidget(self.file_path_field)
-        self.file_picker_layout.addWidget(self.file_browser_btn)
+        self.video_player_widget.media_player.positionChanged.connect(_on_media_position_changed)
+        self.video_player_widget.media_player.durationChanged.connect(_on_media_duration_changed)
 
-        vod_filepath_label = QLabel("VOD Filepath")
-        id_twitch_label = QLabel("ID Twitch")
-        created_at_label = QLabel("Created at")
-        duration_label = QLabel("Duration")
-        title_label = QLabel("Title")
-        streamer_label = QLabel("Streamer")
+        def _on_slider_pressed():
+            self.video_player_widget.is_seeking = True
+
+        def _on_slider_released():
+            new_position = self.position_slider_widget.value()
+            self.video_player_widget.set_current_time(new_position)
+            self.video_player_widget.is_seeking = False
+
+        self.position_slider_widget.sliderPressed.connect(_on_slider_pressed)
+        self.position_slider_widget.sliderReleased.connect(_on_slider_released)
+
+        self.main_layout.addWidget(self.position_slider_widget)
+
+        # Video controls
+        self.video_controls_layout = QHBoxLayout()
         
-        self.id_twitch_field = QLineEdit()
-        self.created_at_field = QLineEdit()
-        self.duration_field = QLineEdit()
-        self.title_field = QLineEdit()
-        self.streamer_field = QLineEdit()
+        self.play_pause_button = QPushButton(self.style().standardIcon(QStyle.SP_MediaPlay), "")
+        self.stop_button = QPushButton(self.style().standardIcon(QStyle.SP_MediaStop), "")
+        self.split_btn = QPushButton(text="S")
+        self.jump_start_btn = QPushButton(text="JS")
+        self.jump_end_btn = QPushButton(text="JE")
+        self.set_start_btn = QPushButton(text="SS")
+        self.set_end_btn = QPushButton(text="SE")
 
-        self.id_twitch_field.setEnabled(False)
-        self.created_at_field.setEnabled(False)
-        self.duration_field.setEnabled(False)
-        self.title_field.setEnabled(False)
-        self.streamer_field.setEnabled(False)
+        def _on_play_pause_btn_click():
+            if self.video_player_widget.media_player.playbackState() in [QMediaPlayer.PlaybackState.PausedState,
+                                                                         QMediaPlayer.PlaybackState.StoppedState]:
+                self.video_player_widget.play()
+            else:
+                self.video_player_widget.pause()
 
-        self.info_layout.addWidget(vod_filepath_label, 0, 0)
-        self.info_layout.addWidget(id_twitch_label, 1, 0)
-        self.info_layout.addWidget(created_at_label, 2, 0)
-        self.info_layout.addWidget(duration_label, 3, 0)
-        self.info_layout.addWidget(title_label, 4, 0)
-        self.info_layout.addWidget(streamer_label, 5, 0)
-
-        self.info_layout.addLayout(self.file_picker_layout, 0, 1)
-        self.info_layout.addWidget(self.id_twitch_field, 1, 1)
-        self.info_layout.addWidget(self.created_at_field, 2, 1)
-        self.info_layout.addWidget(self.duration_field, 3, 1)
-        self.info_layout.addWidget(self.title_field, 4, 1)
-        self.info_layout.addWidget(self.streamer_field, 5, 1)
+        def _on_update_play_pause_btn_icon():
+            if self.video_player_widget.media_player.playbackState() in [QMediaPlayer.PlaybackState.PausedState,
+                                                                         QMediaPlayer.PlaybackState.StoppedState]:
+                self.play_pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+            else:
+                self.play_pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
         
+        self.play_pause_button.clicked.connect(_on_play_pause_btn_click)
+        self.stop_button.clicked.connect(self.video_player_widget.stop)
 
-        self.segments_create_btn = QPushButton("Import Chapters")
-        self.download_thumbnails_btn = QPushButton("Download Thumbnails")
-        self.download_chatlog_btn = QPushButton("Download Chat Log")
+        self.video_player_widget.media_player.playbackStateChanged.connect(_on_update_play_pause_btn_icon)
+
+        self.video_controls_layout.addWidget(self.play_pause_button)
+        self.video_controls_layout.addWidget(self.stop_button)
+        self.video_controls_layout.addWidget(self.jump_start_btn)
+        self.video_controls_layout.addWidget(self.jump_end_btn)
+        self.video_controls_layout.addWidget(self.set_start_btn)
+        self.video_controls_layout.addWidget(self.split_btn)
+        self.video_controls_layout.addWidget(self.set_end_btn)
+
+        self.main_layout.addLayout(self.video_controls_layout)
+
+        # Splits dock
+        self.splits_dock = QDockWidget()
+
+        self.splits_widget = QWidget()
+
+        self.splits_layout = QHBoxLayout()
+        self.splits_widget.setLayout(self.splits_layout)
 
         self.segments_list = QListWidget()
+        self.splits_controls_layout = QVBoxLayout()
 
         self.segments_add_btn = QPushButton(text="+")
         self.segments_delete_btn = QPushButton(text="-")
+        self.segments_import_btn = QPushButton(text="I")
+        self.segments_process_btn = QPushButton(text="P")
+
+        self.splits_controls_layout.addWidget(self.segments_add_btn)
+        self.splits_controls_layout.addWidget(self.segments_delete_btn)
+        self.splits_controls_layout.addWidget(self.segments_import_btn)
+        self.splits_controls_layout.addWidget(self.segments_process_btn)
+        self.splits_controls_layout.addStretch()
+
+        self.splits_layout.addWidget(self.segments_list)
+        self.splits_layout.addLayout(self.splits_controls_layout)
+
+        self.splits_dock.setWidget(self.splits_widget)
         
-        self.jump_start_btn = QPushButton(text="Jump To Start")
-        self.jump_end_btn = QPushButton(text="Jump To End")
+        self.addDockWidget(Qt.RightDockWidgetArea, self.splits_dock)
+
+        self.set_video_file("/Users/diffty/Movies/_Déchetterie/ChrisEvansDick-1304840174162116609.mp4")
+
+        #self.launch_vlc_btn = QPushButton("Launch VLC")
+
+        #self.info_layout = QGridLayout()
+
+        #self.file_picker_layout = QHBoxLayout()
+
+        #self.file_path_field = QLineEdit()
+        #self.file_browser_btn = QPushButton(text="...")
+
+        #self.file_picker_layout.addWidget(self.file_path_field)
+        #self.file_picker_layout.addWidget(self.file_browser_btn)
+
+        #vod_filepath_label = QLabel("VOD Filepath")
+        #id_twitch_label = QLabel("ID Twitch")
+        #created_at_label = QLabel("Created at")
+        #duration_label = QLabel("Duration")
+        #title_label = QLabel("Title")
+        #streamer_label = QLabel("Streamer")
         
-        self.set_start_btn = QPushButton(text="Set Start")
-        self.set_end_btn = QPushButton(text="Set End")
+        #self.id_twitch_field = QLineEdit()
+        #self.created_at_field = QLineEdit()
+        #self.duration_field = QLineEdit()
+        #self.title_field = QLineEdit()
+        #self.streamer_field = QLineEdit()
 
-        self.split_btn = QPushButton(text="Split")
+        #self.id_twitch_field.setEnabled(False)
+        #self.created_at_field.setEnabled(False)
+        #self.duration_field.setEnabled(False)
+        #self.title_field.setEnabled(False)
+        #self.streamer_field.setEnabled(False)
+
+        #self.info_layout.addWidget(vod_filepath_label, 0, 0)
+        #self.info_layout.addWidget(id_twitch_label, 1, 0)
+        #self.info_layout.addWidget(created_at_label, 2, 0)
+        #self.info_layout.addWidget(duration_label, 3, 0)
+        #self.info_layout.addWidget(title_label, 4, 0)
+        #self.info_layout.addWidget(streamer_label, 5, 0)
+
+        #self.info_layout.addLayout(self.file_picker_layout, 0, 1)
+        #self.info_layout.addWidget(self.id_twitch_field, 1, 1)
+        #self.info_layout.addWidget(self.created_at_field, 2, 1)
+        #self.info_layout.addWidget(self.duration_field, 3, 1)
+        #self.info_layout.addWidget(self.title_field, 4, 1)
+        #self.info_layout.addWidget(self.streamer_field, 5, 1)
         
-        self.process_selected_btn = QPushButton(text="Process Selected Segment")
-        self.process_all_btn = QPushButton(text="Process All Segments")
+
+        #self.segments_create_btn = QPushButton("Import Chapters")
+        #self.download_thumbnails_btn = QPushButton("Download Thumbnails")
+        #self.download_chatlog_btn = QPushButton("Download Chat Log")
+
+        #self.process_selected_btn = QPushButton(text="Process Selected Segment")
+        #self.process_all_btn = QPushButton(text="Process All Segments")
 
 
-        self.jump_layout = QHBoxLayout()
+        #self.jump_layout = QHBoxLayout()
 
-        self.jump_layout.addWidget(self.jump_start_btn)
-        self.jump_layout.addWidget(self.jump_end_btn)
+        #self.jump_layout.addWidget(self.jump_start_btn)
+        #self.jump_layout.addWidget(self.jump_end_btn)
 
-        self.set_layout = QHBoxLayout()
+        #self.set_layout = QHBoxLayout()
 
-        self.set_layout.addWidget(self.set_start_btn)
-        self.set_layout.addWidget(self.set_end_btn)
+        #self.set_layout.addWidget(self.set_start_btn)
+        #self.set_layout.addWidget(self.set_end_btn)
 
 
-        self.main_layout.addWidget(self.launch_vlc_btn)
-        self.main_layout.addLayout(self.file_picker_layout)
-        self.main_layout.addLayout(self.info_layout)
-        self.main_layout.addWidget(self.segments_create_btn)
-        self.main_layout.addWidget(self.download_thumbnails_btn)
-        self.main_layout.addWidget(self.download_chatlog_btn)
-        self.main_layout.addWidget(self.segments_list)
-        self.main_layout.addWidget(self.segments_add_btn)
-        self.main_layout.addWidget(self.segments_delete_btn)
-        self.main_layout.addLayout(self.jump_layout)
-        self.main_layout.addLayout(self.set_layout)
-        self.main_layout.addWidget(self.split_btn)
-        self.main_layout.addWidget(self.process_selected_btn)
-        self.main_layout.addWidget(self.process_all_btn)
+        #self.main_layout.addWidget(self.launch_vlc_btn)
+        #self.main_layout.addLayout(self.file_picker_layout)
+        #self.main_layout.addLayout(self.info_layout)
+        #self.main_layout.addWidget(self.segments_create_btn)
+        #self.main_layout.addWidget(self.download_thumbnails_btn)
+        #self.main_layout.addWidget(self.download_chatlog_btn)
+        #self.main_layout.addWidget(self.segments_list)
+        #self.main_layout.addWidget(self.segments_add_btn)
+        #self.main_layout.addWidget(self.segments_delete_btn)
+        #self.main_layout.addLayout(self.jump_layout)
+        #self.main_layout.addLayout(self.set_layout)
+        #self.main_layout.addWidget(self.split_btn)
+        #self.main_layout.addWidget(self.process_selected_btn)
+        #self.main_layout.addWidget(self.process_all_btn)
 
         self.main_widget = QWidget()
         self.main_widget.setLayout(self.main_layout)
@@ -241,15 +333,15 @@ class VODCutter(QMainWindow):
         self.set_start_btn.clicked.connect(self.set_segment_start)
         self.set_end_btn.clicked.connect(self.set_segment_end)
 
-        self.download_thumbnails_btn.clicked.connect(self.download_thumbnails)
+        #self.download_thumbnails_btn.clicked.connect(self.download_thumbnails)
         self.segments_add_btn.clicked.connect(self.create_segment)
         self.segments_delete_btn.clicked.connect(self.delete_segment)
+        self.segments_process_btn.clicked.connect(self.process_selected_segment)
         self.split_btn.clicked.connect(self.split_selected_segment)
-        self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
-        self.file_path_field.returnPressed.connect(self.on_video_url_changed)
-        self.file_browser_btn.clicked.connect(self.on_filebrowse_btn_click)
-        self.process_selected_btn.clicked.connect(self.process_selected_segment)
-        self.process_all_btn.clicked.connect(self.process_all_segments)
+        #self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
+        #self.file_path_field.returnPressed.connect(self.on_video_url_changed)
+        #self.file_browser_btn.clicked.connect(self.on_filebrowse_btn_click)
+        #self.process_all_btn.clicked.connect(self.process_all_segments)
 
     def on_launch_vlc(self):
         self.vlc_interface.launch()
@@ -265,16 +357,17 @@ class VODCutter(QMainWindow):
     def on_segments_list_doubleclick(self, item):
         current_segment = item.get_segment()
         if current_segment:
-            self.vlc_interface.set_current_time(int(current_segment.start_time))
+            self.video_player_widget.set_current_time(int(current_segment.start_time))
     
     def set_video_file(self, filepath=None):
-        self.file_path_field.setText("" if filepath is None else filepath)
+        #self.file_path_field.setText ("" if filepath is None else filepath)
         
         if filepath:
             self.loaded_video = InputVideo()
 
             if re.search(r"^(?:/|[a-z]:[\\/])", filepath, re.I):
-                file_url = "file://" + filepath
+                #file_url = "file://" + filepath  # c'est un truc à mettre dans VLCInterface ça si on le réimplémente un jour)
+                file_url = filepath
                 self.loaded_video.is_local = True
             else:
                 file_url = filepath
@@ -288,19 +381,18 @@ class VODCutter(QMainWindow):
             else:
                 self.loaded_video.filepath = file_url
             
-            try:
-                self.update_twitch_metadatas()
-            except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
-                print(f"<!!> Can't connect to Twitch API : {e}")
+            #stream_url = self.file_path_field.text()
+            #try:
+            #    self.update_twitch_metadatas(filepath)
+            #except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
+            #    print(f"<!!> Can't connect to Twitch API : {e}")
             
-            try:
-                self.vlc_interface.open_url(self.loaded_video.filepath)
-            except requests.exceptions.ConnectionError:
-                print("<!!> Can't connect to local VLC instance.")
+            #try:
+            self.video_player_widget.set_media(self.loaded_video.filepath)
+            #except requests.exceptions.ConnectionError:
+            #    print("<!!> Can't connect to local VLC instance.")
     
-    def get_twitch_id_from_filepath(self):
-        filename = self.file_path_field.text()
-
+    def get_twitch_id_from_filepath(self, filename):
         parsed_filename = re.search("([0-9]+)\.mp4$", filename, re.I)
 
         if parsed_filename:
@@ -320,8 +412,8 @@ class VODCutter(QMainWindow):
     def create_segment_after(self, segment_obj):
         pass
     
-    def update_twitch_metadatas(self):
-        twitch_video_id = self.get_twitch_id_from_filepath()
+    def update_twitch_metadatas(self, stream_url):
+        twitch_video_id = self.get_twitch_id_from_filepath(stream_url)
         metadatas = self.twitch_interface.get_twitch_metadatas(twitch_video_id)
 
         self.loaded_video.metadatas = metadatas
@@ -354,7 +446,7 @@ class VODCutter(QMainWindow):
 
         s.name = f"Segment {self.segments_list.count()}"
         s.start_time = 0
-        s.end_time = self.vlc_interface.get_duration()
+        s.end_time = self.video_player_widget.get_duration()
 
         self.segments_list.addItem(SegmentListItem(s))
     
@@ -365,7 +457,7 @@ class VODCutter(QMainWindow):
             del item
 
     def split_selected_segment(self):
-        current_time = self.vlc_interface.get_current_time()
+        current_time = self.video_player_widget.get_current_time()
 
         for segment_item in self.segments_list.selectedItems():
             current_segment = segment_item.get_segment()
@@ -379,22 +471,22 @@ class VODCutter(QMainWindow):
     def jump_to_segment_start(self):
         selected_segments = self.get_selected_segments()
         if selected_segments:
-            self.vlc_interface.set_current_time(math.floor(selected_segments[0].start_time))
+            self.video_player_widget.set_current_time(math.floor(selected_segments[0].start_time))
 
     def jump_to_segment_end(self):
         selected_segments = self.get_selected_segments()
         if selected_segments:
-            self.vlc_interface.set_current_time(math.floor(selected_segments[0].end_time))
+            self.video_player_widget.set_current_time(math.floor(selected_segments[0].end_time))
 
     def set_segment_start(self):
-        current_time = self.vlc_interface.get_current_time()
+        current_time = self.video_player_widget.get_current_time()
         selected_segments = self.segments_list.selectedItems()
         if selected_segments:
             selected_segments[0].get_segment().start_time = current_time
             selected_segments[0].update()
 
     def set_segment_end(self):
-        current_time = self.vlc_interface.get_current_time()
+        current_time = self.video_player_widget.get_current_time()
         selected_segments = self.segments_list.selectedItems()
         if selected_segments:
             selected_segments[0].get_segment().end_time = current_time
