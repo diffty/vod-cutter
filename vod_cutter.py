@@ -16,6 +16,7 @@ from utils.time import format_time, parse_duration
 from interface.vlc import VLCInterface
 from interface.twitch import TwitchInterface
 from ui.videoplayer_widget import MediaPlayer
+from ui.vlcplayer_widget import VlcPlayer
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMainWindow
@@ -110,7 +111,7 @@ class SegmentListItem(QListWidgetItem):
         return new_segment
 
     def update(self):
-        self.setText(f"{format_time(self.segment_obj.start_time)} -> {format_time(self.segment_obj.end_time)}: {self.segment_obj.name}")
+        self.setText(f"{format_time(self.segment_obj.start_time/1000)} -> {format_time(self.segment_obj.end_time/1000)}: {self.segment_obj.name}")
 
 
 class InputVideo:
@@ -139,7 +140,7 @@ class VODCutter(QMainWindow):
 
         self.main_layout = QVBoxLayout()
 
-        self.video_player_widget = MediaPlayer()
+        self.video_player_widget = VlcPlayer()
         self.main_layout.addWidget(self.video_player_widget)
 
         # Transport slider
@@ -153,15 +154,15 @@ class VODCutter(QMainWindow):
         def _on_media_duration_changed(new_duration: int):
             self.position_slider_widget.setRange(0, new_duration)
 
-        self.video_player_widget.media_player.positionChanged.connect(_on_media_position_changed)
-        self.video_player_widget.media_player.durationChanged.connect(_on_media_duration_changed)
+        self.video_player_widget.positionChanged.connect(_on_media_position_changed)
+        self.video_player_widget.durationChanged.connect(_on_media_duration_changed)
 
         def _on_slider_pressed():
             self.video_player_widget.is_seeking = True
 
         def _on_slider_released():
             new_position = self.position_slider_widget.value()
-            self.video_player_widget.set_current_time(new_position)
+            self.video_player_widget.time = new_position
             self.video_player_widget.is_seeking = False
 
         self.position_slider_widget.sliderPressed.connect(_on_slider_pressed)
@@ -181,15 +182,13 @@ class VODCutter(QMainWindow):
         self.set_end_btn = QPushButton(text="SE")
 
         def _on_play_pause_btn_click():
-            if self.video_player_widget.media_player.playbackState() in [QMediaPlayer.PlaybackState.PausedState,
-                                                                         QMediaPlayer.PlaybackState.StoppedState]:
+            if not self.video_player_widget.is_playing:
                 self.video_player_widget.play()
             else:
                 self.video_player_widget.pause()
 
         def _on_update_play_pause_btn_icon():
-            if self.video_player_widget.media_player.playbackState() in [QMediaPlayer.PlaybackState.PausedState,
-                                                                         QMediaPlayer.PlaybackState.StoppedState]:
+            if not self.video_player_widget.is_playing:
                 self.play_pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
             else:
                 self.play_pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
@@ -197,7 +196,7 @@ class VODCutter(QMainWindow):
         self.play_pause_button.clicked.connect(_on_play_pause_btn_click)
         self.stop_button.clicked.connect(self.video_player_widget.stop)
 
-        self.video_player_widget.media_player.playbackStateChanged.connect(_on_update_play_pause_btn_icon)
+        self.video_player_widget.mediaStateChanged.connect(_on_update_play_pause_btn_icon)
 
         self.video_controls_layout.addWidget(self.play_pause_button)
         self.video_controls_layout.addWidget(self.stop_button)
@@ -238,7 +237,7 @@ class VODCutter(QMainWindow):
         
         self.addDockWidget(Qt.RightDockWidgetArea, self.splits_dock)
 
-        self.set_video_file("/Users/diffty/Movies/_Déchetterie/ChrisEvansDick-1304840174162116609.mp4")
+        self.set_video_file("https://www.twitch.tv/videos/1653331592")
 
         #self.launch_vlc_btn = QPushButton("Launch VLC")
 
@@ -357,7 +356,7 @@ class VODCutter(QMainWindow):
     def on_segments_list_doubleclick(self, item):
         current_segment = item.get_segment()
         if current_segment:
-            self.video_player_widget.set_current_time(int(current_segment.start_time))
+            self.video_player_widget.time = int(current_segment.start_time)
     
     def set_video_file(self, filepath=None):
         #self.file_path_field.setText ("" if filepath is None else filepath)
@@ -366,8 +365,7 @@ class VODCutter(QMainWindow):
             self.loaded_video = InputVideo()
 
             if re.search(r"^(?:/|[a-z]:[\\/])", filepath, re.I):
-                #file_url = "file://" + filepath  # c'est un truc à mettre dans VLCInterface ça si on le réimplémente un jour)
-                file_url = filepath
+                file_url = "file://" + filepath
                 self.loaded_video.is_local = True
             else:
                 file_url = filepath
@@ -446,7 +444,7 @@ class VODCutter(QMainWindow):
 
         s.name = f"Segment {self.segments_list.count()}"
         s.start_time = 0
-        s.end_time = self.video_player_widget.get_duration()
+        s.end_time = self.video_player_widget.duration
 
         self.segments_list.addItem(SegmentListItem(s))
     
@@ -457,7 +455,7 @@ class VODCutter(QMainWindow):
             del item
 
     def split_selected_segment(self):
-        current_time = self.video_player_widget.get_current_time()
+        current_time = self.video_player_widget.time
 
         for segment_item in self.segments_list.selectedItems():
             current_segment = segment_item.get_segment()
@@ -471,22 +469,22 @@ class VODCutter(QMainWindow):
     def jump_to_segment_start(self):
         selected_segments = self.get_selected_segments()
         if selected_segments:
-            self.video_player_widget.set_current_time(math.floor(selected_segments[0].start_time))
+            self.video_player_widget.time = math.floor(selected_segments[0].start_time)
 
     def jump_to_segment_end(self):
         selected_segments = self.get_selected_segments()
         if selected_segments:
-            self.video_player_widget.set_current_time(math.floor(selected_segments[0].end_time))
+            self.video_player_widget.time = math.floor(selected_segments[0].end_time)
 
     def set_segment_start(self):
-        current_time = self.video_player_widget.get_current_time()
+        current_time = self.video_player_widget.time
         selected_segments = self.segments_list.selectedItems()
         if selected_segments:
             selected_segments[0].get_segment().start_time = current_time
             selected_segments[0].update()
 
     def set_segment_end(self):
-        current_time = self.video_player_widget.get_current_time()
+        current_time = self.video_player_widget.time
         selected_segments = self.segments_list.selectedItems()
         if selected_segments:
             selected_segments[0].get_segment().end_time = current_time
@@ -545,4 +543,4 @@ qapp = QApplication()
 w = VODCutter()
 w.show()
 
-qapp.exec_()
+qapp.exec()
