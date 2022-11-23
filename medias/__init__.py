@@ -2,6 +2,7 @@ import youtube_dl
 import streamlink
 import subprocess
 import os
+import re
 
 
 def get_video_duration(video_url):
@@ -24,6 +25,25 @@ def get_audio_stream_url(video_url):
     if audio_sources:
         audio_source_name = audio_sources[0]
         return streams[audio_source_name].url
+
+
+def get_media_stream_url(media_url):
+    is_local = False
+
+    if re.search(r"^(?:/|[a-z]:[\\/])", media_url, re.I):
+        media_url = "file://" + media_url
+        is_local = True
+    else:
+        media_url = media_url
+
+    if not is_local:
+        streams = streamlink.streams(media_url)
+        if streams:
+            return streams["best"].url
+        else:
+            return media_url
+    else:
+        return media_url
 
 
 def download_audio(input_url, output_video, start_time=None, duration=None, rate=None):
