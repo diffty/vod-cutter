@@ -1,3 +1,5 @@
+import datetime
+
 from typing import List
 from functools import partial, partialmethod
 
@@ -16,8 +18,7 @@ import config
 from utils.time import format_time, parse_duration
 from interface.twitch import TwitchInterface
 from ui.mediadeck_widget import MediaDeck
-from medias import get_media_stream_url
-from medias import parsers
+from medias import get_media_stream_url, parsers
 
 
 class MultiPlayer(QMainWindow):
@@ -35,12 +36,16 @@ class MultiPlayer(QMainWindow):
         self.mainWidget.setLayout(self.grid_layout)
         self.setCentralWidget(self.mainWidget)
     
-    def add_deck(self, media_url: str=None):
+    def add_deck(self, media_url: str=None) -> MediaDeck:
         deck_widget = MediaDeck()
-        deck_widget.video_player.set_media(get_media_stream_url(media_url))
+
         deck_widget.sync_master_btn.clicked.connect(partial(self._on_master_changed, deck_widget))
         deck_widget.sync_enable_btn.clicked.connect(partial(self._on_sync_enabled, deck_widget))
+        deck_widget.volume_mute_btn.clicked.connect(partial(self._on_deck_mute_changed, deck_widget))
         deck_widget.transport_slider.sliderReleased.connect(partial(self._on_deck_transport_moved, deck_widget))
+
+        deck_widget.video_player.set_media(get_media_stream_url(media_url))
+        deck_widget.video_player.is_mute = True
 
         self.deck_list.append(deck_widget)
 
@@ -50,21 +55,24 @@ class MultiPlayer(QMainWindow):
 
         if self.master_deck is None:
             self.master_deck = deck_widget
-    
-    def _on_deck_transport_moved(self, deck: MediaDeck):
-        if deck.is_master:
-            for d in self.deck_list:
-                if d != deck and d.sync_enabled:
-                    self.sync_deck(d)
-        else:
-            deck.sync_enabled = False
+        
+        return deck_widget
     
     def sync_deck(self, deck: MediaDeck):
         if deck != self.master_deck:
-            curr_deck_num = self.deck_list.index(deck)
-            master_deck_num = self.deck_list.index(self.master_deck)
-            master_deck_start_time = self.deck_ref_times[master_deck_num]
-            curr_deck_start_time = self.deck_ref_times[curr_deck_num]
+            if type(self.master_deck.reference_start_time) != type(deck.reference_start_time):
+                raise Exception(f"Can't sync deck {deck}: primary deck and synchronized deck doesn't have the same reference start time format.")
+
+            if type(self.master_deck.reference_start_time) is datetime.datetime:
+                master_deck_start_time = self.master_deck.reference_start_time.timestamp() 
+            else:
+                master_deck_start_time = self.master_deck.reference_start_time
+
+            if type(deck.reference_start_time) is datetime.datetime:
+                curr_deck_start_time = deck.reference_start_time.timestamp() 
+            else:
+                curr_deck_start_time = deck.reference_start_time
+
             new_time = self.master_deck.video_player.time + int(master_deck_start_time - curr_deck_start_time)*1000
             deck.video_player.time = new_time
 
@@ -79,6 +87,19 @@ class MultiPlayer(QMainWindow):
 
         self.master_deck = deck
 
+    def _on_deck_mute_changed(self, deck: MediaDeck):
+        for d in self.deck_list:
+            if d != deck:
+                d.video_player.is_mute = True
+
+    def _on_deck_transport_moved(self, deck: MediaDeck):
+        if deck.is_master:
+            for d in self.deck_list:
+                if d != deck and d.sync_enabled:
+                    self.sync_deck(d)
+        else:
+            deck.sync_enabled = False
+    
 
 if __name__ == "__main__":
     qapp = QApplication()
@@ -94,7 +115,7 @@ if __name__ == "__main__":
     ]
 
     for vod_url in vod_list:
-        p.add_deck(vod_url)
+        new_deck = p.add_deck(vod_url)
                 
         # TEMPORAIRE
         twitch_ifc = TwitchInterface(
@@ -106,8 +127,10 @@ if __name__ == "__main__":
         vod_id = parsers.get_twitch_id_from_url(vod_url)
         metadatas = twitch_ifc.get_twitch_metadatas(vod_id)
 
-        p.deck_ref_times.append(metadatas["created_at"].timestamp())
+        new_deck.reference_start_time = metadatas["created_at"]
         # /TEMPORAIRE
+
+    new_deck = p.add_deck(vod_url)
 
     p.show()
 
