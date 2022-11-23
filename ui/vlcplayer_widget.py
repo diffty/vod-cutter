@@ -11,6 +11,8 @@ class VlcPlayer(QFrame):
     positionChanged = Signal(int)
     durationChanged = Signal(int)
     mediaStateChanged = Signal()
+    volumeChanged = Signal(int)
+    volumeMuted = Signal(bool)
 
     def __init__(self):
         QFrame.__init__(self)
@@ -27,8 +29,21 @@ class VlcPlayer(QFrame):
         def _on_duration_changed(event: vlc.Event):
             self.durationChanged.emit(self.duration)
         
+        def _on_volume_muted(event: vlc.Event):
+            self.volumeMuted.emit(True)
+        
+        def _on_volume_unmuted(event: vlc.Event):
+            self.volumeMuted.emit(False)
+        
+        def _on_volume_changed(event: vlc.Event):
+            self.volumeChanged.emit(self.volume)
+        
         self.media_player.event_manager().event_attach(vlc.EventType.MediaPlayerPositionChanged, _on_position_changed)
         self.media_player.event_manager().event_attach(vlc.EventType.MediaPlayerLengthChanged, _on_duration_changed)
+        self.media_player.event_manager().event_attach(vlc.EventType.MediaPlayerMuted, _on_volume_muted)
+        self.media_player.event_manager().event_attach(vlc.EventType.MediaPlayerUnmuted, _on_volume_unmuted)
+        self.media_player.event_manager().event_attach(vlc.EventType.MediaPlayerAudioVolume, _on_volume_changed)
+        
 
         if sys.platform.startswith("linux"):  # for Linux using the X Server
             self.media_player.set_xwindow(self.winId())
@@ -40,15 +55,15 @@ class VlcPlayer(QFrame):
             raise Exception(f"Unknown platform {sys.platform}!")
     
     @property
-    def is_playing(self):
+    def is_playing(self) -> bool:
         return self.media_player.is_playing()
     
     @property
-    def duration(self):
+    def duration(self) -> int:
         return self.media_player.get_length()
     
     @property
-    def time(self):
+    def time(self) -> int:
         return self.media_player.get_time()
     
     @property
@@ -56,10 +71,26 @@ class VlcPlayer(QFrame):
         return self.media_player.get_state()
     
     @time.setter
-    def time(self, new_position):
+    def time(self, new_position: int):
         return self.media_player.set_time(new_position)
     
-    def set_media(self, media_url):
+    @property
+    def volume(self) -> int:
+        return self.media_player.audio_get_volume()
+    
+    @volume.setter
+    def volume(self, new_volume: int):
+        return self.media_player.audio_set_volume(new_volume)
+    
+    @property
+    def is_mute(self) -> bool:
+        return self.media_player.audio_get_mute()
+    
+    @is_mute.setter
+    def is_mute(self, new_is_mute: bool):
+        return self.media_player.audio_set_mute(new_is_mute)
+    
+    def set_media(self, media_url: str):
         media: vlc.Media = self.vlc_instance.media_new(media_url)
 
         def _on_media_state_changed(event: vlc.Event):
