@@ -1,3 +1,6 @@
+import datetime
+from typing import Union
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QWidget, QPushButton, QSlider
@@ -11,6 +14,10 @@ class MediaDeck(QWidget):
     def __init__(self):
         QWidget.__init__(self)
 
+        # Timing reference attributes
+        self.reference_start_time: Union[int, datetime.datetime] = 0
+        
+        # UI building
         self.layout = QVBoxLayout()
 
         # Video player widget
@@ -58,6 +65,7 @@ class MediaDeck(QWidget):
         self.sync_master_btn = QPushButton(text="Master")
         self.sync_enable_btn = QPushButton(text="Sync")
         self.cog_menu_btn = QPushButton(text="Cog")
+        self.volume_mute_btn = QPushButton(self.style().standardIcon(QStyle.SP_MediaVolumeMuted), "")
 
         self.sync_master_btn.setCheckable(True)
         self.sync_enable_btn.setCheckable(True)
@@ -74,10 +82,21 @@ class MediaDeck(QWidget):
             else:
                 self.play_pause_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
         
+        def _on_update_volume_mute_btn_icon():
+            if self.video_player.is_mute:
+                self.volume_mute_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaVolumeMuted))
+            else:
+                self.volume_mute_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaVolume))
+
+        def _on_mute_btn_click():
+            self.video_player.is_mute = not self.video_player.is_mute
+
         self.play_pause_btn.clicked.connect(_on_play_pause_btn_click)
         self.stop_btn.clicked.connect(self.video_player.stop)
+        self.volume_mute_btn.clicked.connect(_on_mute_btn_click)
 
         self.video_player.mediaStateChanged.connect(_on_update_play_pause_btn_icon)
+        self.video_player.volumeMuted.connect(_on_update_volume_mute_btn_icon)
 
         self.video_controls_layout.addWidget(self.play_pause_btn)
         self.video_controls_layout.addWidget(self.stop_btn)
@@ -90,6 +109,7 @@ class MediaDeck(QWidget):
         self.video_controls_layout.addWidget(self.sync_master_btn)
         self.video_controls_layout.addWidget(self.sync_enable_btn)
         self.video_controls_layout.addWidget(self.cog_menu_btn)
+        self.video_controls_layout.addWidget(self.volume_mute_btn)
         
         self.layout.addLayout(self.video_controls_layout)
 
