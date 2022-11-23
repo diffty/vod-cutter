@@ -95,6 +95,13 @@ class MediaDeck(QWidget):
 
         self.setLayout(self.layout)
     
+    def __repr__(self) -> str:
+        media = self.video_player.media_player.get_media()
+        if media:
+            return f"<MediaDeck [Loaded]: {media.get_mrl()}>"
+        else:
+            return f"<MediaDeck [Unloaded]>"
+
     @property
     def is_master(self):
         return self.sync_master_btn.isChecked()
