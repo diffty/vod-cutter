@@ -15,10 +15,11 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 
 import config
 
+from medias import get_media_stream_url, parsers
 from utils.time import format_time, parse_duration
 from interface.twitch import TwitchInterface
 from ui.mediadeck_widget import MediaDeck
-from medias import get_media_stream_url, parsers
+from ui.splits_widget import SegmentsListWidget
 
 
 class MultiPlayer(QMainWindow):
@@ -27,11 +28,14 @@ class MultiPlayer(QMainWindow):
 
         self.master_deck = None
         self.deck_list: List[MediaDeck] = []
-        self.deck_ref_times: List[int] = []
 
         self.mainWidget = QWidget()
-
         self.grid_layout = QGridLayout()
+
+        self.splits_widget = SegmentsListWidget()
+        self.splits_dock = QDockWidget()
+        self.splits_dock.setWidget(self.splits_widget)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.splits_dock)
 
         self.mainWidget.setLayout(self.grid_layout)
         self.setCentralWidget(self.mainWidget)
@@ -109,14 +113,14 @@ if __name__ == "__main__":
     vod_list = [
         "https://www.twitch.tv/videos/1659154638",
         "https://www.twitch.tv/videos/1659179257",
-        "https://www.twitch.tv/videos/1659102478",
-        "https://www.twitch.tv/videos/1659173811",
-        "https://www.twitch.tv/videos/1659103254",
+        #"https://www.twitch.tv/videos/1659102478",
+        #"https://www.twitch.tv/videos/1659173811",
+        #"https://www.twitch.tv/videos/1659103254",
     ]
 
     for vod_url in vod_list:
         new_deck = p.add_deck(vod_url)
-                
+        
         # TEMPORAIRE
         twitch_ifc = TwitchInterface(
             api_client_id=config.TWITCH_API_CLIENT_ID,
@@ -129,8 +133,6 @@ if __name__ == "__main__":
 
         new_deck.reference_start_time = metadatas["created_at"]
         # /TEMPORAIRE
-
-    new_deck = p.add_deck(vod_url)
 
     p.show()
 

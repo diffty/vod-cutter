@@ -16,7 +16,6 @@ from utils.time import format_time, parse_duration
 from interface.vlc import VLCInterface
 from interface.twitch import TwitchInterface
 from ui.videoplayer_widget import MediaPlayer
-from ui.vlcplayer_widget import VlcPlayer
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMainWindow
@@ -42,76 +41,76 @@ from PySide6.QtMultimediaWidgets import QVideoWidget
 # https://www.twitch.tv/videos/1019098497
 
 
-class SPLIT_MODE:
-    RELATIVE = 0
-    ABSOLUTE = 1
-    RATIO = 2
+#class SPLIT_MODE:
+#    RELATIVE = 0
+#    ABSOLUTE = 1
+#    RATIO = 2
 
 
-class Segment:
-    name = ""
-    start_time = 0
-    end_time = 0
+#class Segment:
+#    name = ""
+#    start_time = 0
+#    end_time = 0
 
-    def get_duration(self):
-        return self.end_time - self.start_time
+#    def get_duration(self):
+#        return self.end_time - self.start_time
 
-    def split(self, split_time, name=None, split_mode=SPLIT_MODE.RELATIVE):
-        if name is None:
-            name = ""
+#    def split(self, split_time, name=None, split_mode=SPLIT_MODE.RELATIVE):
+#        if name is None:
+#            name = ""
         
-        new_segment = Segment()
-        new_segment.name = name
+#        new_segment = Segment()
+#        new_segment.name = name
 
-        if split_mode == SPLIT_MODE.RATIO:
-            if split_time < 0 or split_time > 1:
-                raise Exception("<!!> split_time in ratio mode should be between 0 and 1")
-            
-            split_time = split_time * self.get_duration()
-            split_mode = SPLIT_MODE.RELATIVE
+#        if split_mode == SPLIT_MODE.RATIO:
+#            if split_time < 0 or split_time > 1:
+#                raise Exception("<!!> split_time in ratio mode should be between 0 and 1")
+#            
+#            split_time = split_time * self.get_duration()
+#            split_mode = SPLIT_MODE.RELATIVE
 
-        if split_mode == SPLIT_MODE.RELATIVE:
-            if split_time < 0 or split_time > self.get_duration():
-                raise Exception("<!!> start_time is out of bounds")
+#        if split_mode == SPLIT_MODE.RELATIVE:
+#            if split_time < 0 or split_time > self.get_duration():
+#                raise Exception("<!!> start_time is out of bounds")
 
-            new_segment.start_time = self.start_time + split_time
-            new_segment.end_time = self.end_time
-            self.end_time = new_segment.start_time
+#            new_segment.start_time = self.start_time + split_time
+#            new_segment.end_time = self.end_time
+#            self.end_time = new_segment.start_time
 
-        elif split_mode == SPLIT_MODE.ABSOLUTE:
-            if split_time < self.start_time or split_time > self.end_time:
-                raise Exception("<!!> start_time is out of bounds")
+#        elif split_mode == SPLIT_MODE.ABSOLUTE:
+#            if split_time < self.start_time or split_time > self.end_time:
+#                raise Exception("<!!> start_time is out of bounds")
 
-            new_segment.start_time = split_time
-            new_segment.end_time = self.end_time
-            self.end_time = split_time
+#            new_segment.start_time = split_time
+#            new_segment.end_time = self.end_time
+#            self.end_time = split_time
         
-        else:
-            raise Exception(f"<!!> Unknown split_mode ({split_mode})")
+#        else:
+#            raise Exception(f"<!!> Unknown split_mode ({split_mode})")
         
-        return new_segment
+#        return new_segment
     
 
-class SegmentListItem(QListWidgetItem):
-    def __init__(self, new_segment_obj):
-        QListWidgetItem.__init__(self)
-        self.segment_obj = None
-        self.set_segment(new_segment_obj)
+#class SegmentListItem(QListWidgetItem):
+#    def __init__(self, new_segment_obj):
+#        QListWidgetItem.__init__(self)
+#        self.segment_obj = None
+#        self.set_segment(new_segment_obj)
     
-    def set_segment(self, new_segment_obj):
-        self.segment_obj = new_segment_obj
-        self.update()
+#    def set_segment(self, new_segment_obj):
+#        self.segment_obj = new_segment_obj
+#        self.update()
     
-    def get_segment(self):
-        return self.segment_obj
+#    def get_segment(self):
+#        return self.segment_obj
     
-    def split(self, *args, **kwargs):
-        new_segment = self.segment_obj.split(*args, **kwargs)
-        self.update()
-        return new_segment
+#    def split(self, *args, **kwargs):
+#        new_segment = self.segment_obj.split(*args, **kwargs)
+#        self.update()
+#        return new_segment
 
-    def update(self):
-        self.setText(f"{format_time(self.segment_obj.start_time/1000)} -> {format_time(self.segment_obj.end_time/1000)}: {self.segment_obj.name}")
+#    def update(self):
+#        self.setText(f"{format_time(self.segment_obj.start_time/1000)} -> {format_time(self.segment_obj.end_time/1000)}: {self.segment_obj.name}")
 
 
 class InputVideo:
@@ -134,110 +133,40 @@ class VODCutter(QMainWindow):
             browser_oauth_token=config.TWITCH_BROWSER_OAUTH_TOKEN
         )
 
-        self.vlc_interface = VLCInterface(config.VLC_PATH)
-
         self.loaded_video = None
 
-        self.main_layout = QVBoxLayout()
-
-        self.video_player_widget = VlcPlayer()
-        self.main_layout.addWidget(self.video_player_widget)
-
-        # Transport slider
-        self.position_slider_widget = QSlider()
-        self.position_slider_widget.setOrientation(Qt.Horizontal)
-
-        def _on_media_position_changed(new_position: int):
-            if not self.video_player_widget.is_seeking:
-                self.position_slider_widget.setValue(new_position)
-
-        def _on_media_duration_changed(new_duration: int):
-            self.position_slider_widget.setRange(0, new_duration)
-
-        self.video_player_widget.positionChanged.connect(_on_media_position_changed)
-        self.video_player_widget.durationChanged.connect(_on_media_duration_changed)
-
-        def _on_slider_pressed():
-            self.video_player_widget.is_seeking = True
-
-        def _on_slider_released():
-            new_position = self.position_slider_widget.value()
-            self.video_player_widget.time = new_position
-            self.video_player_widget.is_seeking = False
-
-        self.position_slider_widget.sliderPressed.connect(_on_slider_pressed)
-        self.position_slider_widget.sliderReleased.connect(_on_slider_released)
-
-        self.main_layout.addWidget(self.position_slider_widget)
-
-        # Video controls
-        self.video_controls_layout = QHBoxLayout()
-        
-        self.play_pause_button = QPushButton(self.style().standardIcon(QStyle.SP_MediaPlay), "")
-        self.stop_button = QPushButton(self.style().standardIcon(QStyle.SP_MediaStop), "")
-        self.split_btn = QPushButton(text="S")
-        self.jump_start_btn = QPushButton(text="JS")
-        self.jump_end_btn = QPushButton(text="JE")
-        self.set_start_btn = QPushButton(text="SS")
-        self.set_end_btn = QPushButton(text="SE")
-
-        def _on_play_pause_btn_click():
-            if not self.video_player_widget.is_playing:
-                self.video_player_widget.play()
-            else:
-                self.video_player_widget.pause()
-
-        def _on_update_play_pause_btn_icon():
-            if not self.video_player_widget.is_playing:
-                self.play_pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
-            else:
-                self.play_pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
-        
-        self.play_pause_button.clicked.connect(_on_play_pause_btn_click)
-        self.stop_button.clicked.connect(self.video_player_widget.stop)
-
-        self.video_player_widget.mediaStateChanged.connect(_on_update_play_pause_btn_icon)
-
-        self.video_controls_layout.addWidget(self.play_pause_button)
-        self.video_controls_layout.addWidget(self.stop_button)
-        self.video_controls_layout.addWidget(self.jump_start_btn)
-        self.video_controls_layout.addWidget(self.jump_end_btn)
-        self.video_controls_layout.addWidget(self.set_start_btn)
-        self.video_controls_layout.addWidget(self.split_btn)
-        self.video_controls_layout.addWidget(self.set_end_btn)
-
-        self.main_layout.addLayout(self.video_controls_layout)
 
         # Splits dock
         self.splits_dock = QDockWidget()
 
-        self.splits_widget = QWidget()
+        ### self.splits_widget = QWidget()
 
-        self.splits_layout = QHBoxLayout()
-        self.splits_widget.setLayout(self.splits_layout)
+        ### self.splits_layout = QHBoxLayout()
+        ### self.splits_widget.setLayout(self.splits_layout)
 
-        self.segments_list = QListWidget()
-        self.splits_controls_layout = QVBoxLayout()
+        ### self.segments_list = QListWidget()
+        ### self.splits_controls_layout = QVBoxLayout()
 
-        self.segments_add_btn = QPushButton(text="+")
-        self.segments_delete_btn = QPushButton(text="-")
-        self.segments_import_btn = QPushButton(text="I")
-        self.segments_process_btn = QPushButton(text="P")
+        ### self.segments_add_btn = QPushButton(text="+")
+        ### self.segments_delete_btn = QPushButton(text="-")
+        ### self.segments_import_btn = QPushButton(text="I")
+        ### self.segments_process_btn = QPushButton(text="P")
 
-        self.splits_controls_layout.addWidget(self.segments_add_btn)
-        self.splits_controls_layout.addWidget(self.segments_delete_btn)
-        self.splits_controls_layout.addWidget(self.segments_import_btn)
-        self.splits_controls_layout.addWidget(self.segments_process_btn)
-        self.splits_controls_layout.addStretch()
+        ### self.splits_controls_layout.addWidget(self.segments_add_btn)
+        ### self.splits_controls_layout.addWidget(self.segments_delete_btn)
+        ### self.splits_controls_layout.addWidget(self.segments_import_btn)
+        ### self.splits_controls_layout.addWidget(self.segments_process_btn)
+        ### self.splits_controls_layout.addStretch()
 
-        self.splits_layout.addWidget(self.segments_list)
-        self.splits_layout.addLayout(self.splits_controls_layout)
+        ### self.splits_layout.addWidget(self.segments_list)
+        ### self.splits_layout.addLayout(self.splits_controls_layout)
 
-        self.splits_dock.setWidget(self.splits_widget)
+        ### self.splits_dock.setWidget(self.splits_widget)
         
-        self.addDockWidget(Qt.RightDockWidgetArea, self.splits_dock)
+        ### self.addDockWidget(Qt.RightDockWidgetArea, self.splits_dock)
 
-        self.set_video_file("https://www.twitch.tv/videos/1653331592")
+        ### self.set_video_file("https://www.twitch.tv/videos/1653331592")
+
 
         #self.launch_vlc_btn = QPushButton("Launch VLC")
 
@@ -325,25 +254,24 @@ class VODCutter(QMainWindow):
 
         self.setCentralWidget(self.main_widget)
 
-        self.segments_list.itemDoubleClicked.connect(self.on_segments_list_doubleclick)
+        ###self.segments_list.itemDoubleClicked.connect(self.on_segments_list_doubleclick)
 
-        self.jump_start_btn.clicked.connect(self.jump_to_segment_start)
-        self.jump_end_btn.clicked.connect(self.jump_to_segment_end)
-        self.set_start_btn.clicked.connect(self.set_segment_start)
-        self.set_end_btn.clicked.connect(self.set_segment_end)
+        ###self.jump_start_btn.clicked.connect(self.jump_to_segment_start)
+        ###self.jump_end_btn.clicked.connect(self.jump_to_segment_end)
+        ###self.set_start_btn.clicked.connect(self.set_segment_start)
+        ###self.set_end_btn.clicked.connect(self.set_segment_end)
 
+        ###self.segments_add_btn.clicked.connect(self.create_segment)
+        ###self.segments_delete_btn.clicked.connect(self.delete_segment)
+        ###self.segments_process_btn.clicked.connect(self.process_selected_segment)
+        ###self.split_btn.clicked.connect(self.split_selected_segment)
+        
         #self.download_thumbnails_btn.clicked.connect(self.download_thumbnails)
-        self.segments_add_btn.clicked.connect(self.create_segment)
-        self.segments_delete_btn.clicked.connect(self.delete_segment)
-        self.segments_process_btn.clicked.connect(self.process_selected_segment)
-        self.split_btn.clicked.connect(self.split_selected_segment)
+        
         #self.launch_vlc_btn.clicked.connect(self.on_launch_vlc)
         #self.file_path_field.returnPressed.connect(self.on_video_url_changed)
         #self.file_browser_btn.clicked.connect(self.on_filebrowse_btn_click)
         #self.process_all_btn.clicked.connect(self.process_all_segments)
-
-    def on_launch_vlc(self):
-        self.vlc_interface.launch()
 
     def on_filebrowse_btn_click(self):
         filename = QFileDialog.getOpenFileName(self, "Select a video file")
@@ -353,11 +281,6 @@ class VODCutter(QMainWindow):
     def on_video_url_changed(self):
         self.set_video_file(self.file_path_field.text())
         
-    def on_segments_list_doubleclick(self, item):
-        current_segment = item.get_segment()
-        if current_segment:
-            self.video_player_widget.time = int(current_segment.start_time)
-    
     def set_video_file(self, filepath=None):
         #self.file_path_field.setText ("" if filepath is None else filepath)
         
@@ -404,12 +327,6 @@ class VODCutter(QMainWindow):
             else:
                 raise Exception(f"<!!> Can't find video Twitch id in video filename ({filename})")
     
-    def create_segment_before(self, segment_obj):
-        pass
-    
-    def create_segment_after(self, segment_obj):
-        pass
-    
     def update_twitch_metadatas(self, stream_url):
         twitch_video_id = self.get_twitch_id_from_filepath(stream_url)
         metadatas = self.twitch_interface.get_twitch_metadatas(twitch_video_id)
@@ -439,32 +356,43 @@ class VODCutter(QMainWindow):
 
             self.segments_list.addItem(SegmentListItem(s))
     
-    def create_segment(self):
-        s = Segment()
+    #def on_segments_list_doubleclick(self, item):
+    #    current_segment = item.get_segment()
+    #    if current_segment:
+    #        self.video_player_widget.time = int(current_segment.start_time)
 
-        s.name = f"Segment {self.segments_list.count()}"
-        s.start_time = 0
-        s.end_time = self.video_player_widget.duration
+    #def create_segment_before(self, segment_obj):
+    #    pass
 
-        self.segments_list.addItem(SegmentListItem(s))
-    
-    def delete_segment(self):
-        for item in self.segments_list.selectedItems():
-            idx = self.segments_list.indexFromItem(item)
-            item = self.segments_list.takeItem(idx.row())
-            del item
+    #def create_segment_after(self, segment_obj):
+    #    pass
 
-    def split_selected_segment(self):
-        current_time = self.video_player_widget.time
+    #def create_segment(self):
+    #    s = Segment()
 
-        for segment_item in self.segments_list.selectedItems():
-            current_segment = segment_item.get_segment()
-            if current_segment:
-                new_segment = segment_item.split(current_time, name="Splitted " + current_segment.name, split_mode=SPLIT_MODE.ABSOLUTE)
-                self.segments_list.addItem(SegmentListItem(new_segment))
-    
-    def get_selected_segments(self):
-        return list(map(lambda item: item.get_segment(), self.segments_list.selectedItems()))
+    #    s.name = f"Segment {self.segments_list.count()}"
+    #    s.start_time = 0
+    #    s.end_time = self.video_player_widget.duration
+
+    #    self.segments_list.addItem(SegmentListItem(s))
+
+    #def delete_segment(self):
+    #    for item in self.segments_list.selectedItems():
+    #        idx = self.segments_list.indexFromItem(item)
+    #        item = self.segments_list.takeItem(idx.row())
+    #        del item
+
+    #def split_selected_segment(self):
+    #    current_time = self.video_player_widget.time
+
+    #    for segment_item in self.segments_list.selectedItems():
+    #        current_segment = segment_item.get_segment()
+    #        if current_segment:
+    #            new_segment = segment_item.split(current_time, name="Splitted " + current_segment.name, split_mode=SPLIT_MODE.ABSOLUTE)
+    #            self.segments_list.addItem(SegmentListItem(new_segment))
+
+    #def get_selected_segments(self):
+    #    return list(map(lambda item: item.get_segment(), self.segments_list.selectedItems()))
 
     def jump_to_segment_start(self):
         selected_segments = self.get_selected_segments()
