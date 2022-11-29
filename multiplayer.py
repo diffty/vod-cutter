@@ -19,26 +19,26 @@ from medias import get_media_stream_url, parsers
 from utils.time import format_time, parse_duration
 from interface.twitch import TwitchInterface
 from ui.mediadeck_widget import MediaDeck
-from ui.splits_widget import SegmentsListWidget
+from ui.segments_widget import SegmentsListWidget
 
 
 class MultiPlayer(QMainWindow):
     def __init__(self):
         QMainWindow.__init__(self)
 
-        self.master_deck = None
+        self.master_deck: MediaDeck = None
         self.deck_list: List[MediaDeck] = []
 
-        self.mainWidget = QWidget()
+        self.main_widget = QWidget()
         self.grid_layout = QGridLayout()
 
-        self.splits_widget = SegmentsListWidget()
-        self.splits_dock = QDockWidget()
-        self.splits_dock.setWidget(self.splits_widget)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.splits_dock)
+        self.segments_widget = SegmentsListWidget()
+        self.segments_dock = QDockWidget()
+        self.segments_dock.setWidget(self.segments_widget)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.segments_dock)
 
-        self.mainWidget.setLayout(self.grid_layout)
-        self.setCentralWidget(self.mainWidget)
+        self.main_widget.setLayout(self.grid_layout)
+        self.setCentralWidget(self.main_widget)
     
     def add_deck(self, media_url: str=None) -> MediaDeck:
         deck_widget = MediaDeck()
@@ -47,6 +47,7 @@ class MultiPlayer(QMainWindow):
         deck_widget.sync_enable_btn.clicked.connect(partial(self._on_sync_enabled, deck_widget))
         deck_widget.volume_mute_btn.clicked.connect(partial(self._on_deck_mute_changed, deck_widget))
         deck_widget.transport_slider.sliderReleased.connect(partial(self._on_deck_transport_moved, deck_widget))
+        deck_widget.split_btn.clicked.connect(partial(self._on_deck_split, deck_widget))
 
         deck_widget.video_player.set_media(get_media_stream_url(media_url))
         deck_widget.video_player.is_mute = True
@@ -103,6 +104,15 @@ class MultiPlayer(QMainWindow):
                     self.sync_deck(d)
         else:
             deck.sync_enabled = False
+    
+    def _on_deck_split(self, deck: MediaDeck):
+        segments_items = self.segments_widget.get_segments_items(deck)
+        if len(segments_items) == 0:
+            segments_items.append(self.segments_widget.create_segment(deck))
+        
+        for s in segments_items:
+            if deck.video_player.time > s.get_segment().start_time and deck.video_player.time < s.get_segment().end_time:
+                self.segments_widget.split(deck.video_player.time, deck, [s])
     
 
 if __name__ == "__main__":
