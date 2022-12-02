@@ -12,6 +12,8 @@ from PySide6.QtWidgets import QFileDialog
 from PySide6.QtWidgets import QDockWidget
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
+from PySide6.QtWidgets import QMenuBar, QMenu, QToolBar
+from PySide6.QtGui import QAction
 
 import config
 
@@ -26,6 +28,8 @@ class MultiPlayer(QMainWindow):
     def __init__(self):
         QMainWindow.__init__(self)
 
+        self.setWindowTitle("VOD Cutter")
+
         self.master_deck: MediaDeck = None
         self.deck_list: List[MediaDeck] = []
 
@@ -39,6 +43,30 @@ class MultiPlayer(QMainWindow):
 
         self.main_widget.setLayout(self.grid_layout)
         self.setCentralWidget(self.main_widget)
+
+        # Menu
+        self.file_menu = self.menuBar().addMenu("&File")
+
+        add_media_action = self.file_menu.addAction("Add &Media...")
+        add_url_action = self.file_menu.addAction("Add &URLs...")
+        self.file_menu.addSeparator()
+        close_all_action = self.file_menu.addAction("Close All Decks")
+        self.file_menu.addSeparator()
+        render_submenu = self.file_menu.addMenu("&Render Segments")
+        render_submenu.addAction("&Selected &Deck")
+        render_submenu.addAction("&All Decks")
+        self.file_menu.addSeparator()
+        exit_action = self.file_menu.addAction("E&xit")
+
+        self.help_menu = self.menuBar().addMenu("&Help")
+
+        about_action = self.help_menu.addAction("&About...")
+
+        # Toolbar
+        self.toolbar = QToolBar()
+        self.toolbar.addAction("Open")
+
+        self.addToolBar(self.toolbar)
     
     def add_deck(self, media_url: str=None) -> MediaDeck:
         deck_widget = MediaDeck()
